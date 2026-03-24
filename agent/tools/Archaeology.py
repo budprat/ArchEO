@@ -29,12 +29,13 @@ def _to_grayscale(img):
     elif channels == 4:
         return cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
     else:
-        # Multi-band (e.g. 13-band Sentinel-2): take mean of first 3 bands
-        # or just use band 1 if fewer than 3
-        if channels >= 3:
-            # Use bands 0,1,2 as pseudo-RGB and convert
-            rgb = img[:, :, :3].copy()
-            return cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
+        # Multi-band (e.g. 13-band Sentinel-2): use bands 4,3,2 (indices 3,2,1)
+        # for true-color RGB (Red=B4, Green=B3, Blue=B2 in Sentinel-2 convention)
+        if channels >= 4:
+            rgb = np.stack([img[:, :, 3], img[:, :, 2], img[:, :, 1]], axis=-1)
+            return cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        elif channels >= 3:
+            return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             return img[:, :, 0]
 
@@ -42,13 +43,18 @@ def _to_grayscale(img):
 @mcp.tool(description='''
 Description:
 Apply Canny edge detection to an image and save the result as a GeoTIFF.
+Defaults are calibrated for 10m resolution satellite imagery (e.g., Sentinel-2).
 
 Parameters:
 - image_path (str): Path to the input image (any GDAL-supported format, e.g. GeoTIFF).
 - output_path (str): Relative file path to save the output edge image
                      (e.g., "results/edges_canny.tif").
-- low_threshold (float, optional): Lower hysteresis threshold. Default = 50.
-- high_threshold (float, optional): Upper hysteresis threshold. Default = 150.
+- low_threshold (float, optional): Lower hysteresis threshold. Default = 20
+                                   (tuned for satellite imagery contrast levels).
+- high_threshold (float, optional): Upper hysteresis threshold. Default = 60
+                                    (tuned for satellite imagery contrast levels).
+- gaussian_sigma (float, optional): Sigma for Gaussian blur applied before Canny
+                                    to reduce noise. Default = 1.5. Set to 0 to skip.
 
 Returns:
 - str: Path to the saved edge detection result image.
@@ -56,24 +62,28 @@ Returns:
 def edge_detection_canny(
     image_path: str,
     output_path: str,
-    low_threshold: float = 50,
-    high_threshold: float = 150,
+    low_threshold: float = 20,
+    high_threshold: float = 60,
+    gaussian_sigma: float = 1.5,
 ) -> str:
     """
     Description:
         Apply Canny edge detection to an input image. The image is read via GDAL
         (supporting GeoTIFF and other formats), normalized to uint8, converted to
-        grayscale if needed, then processed with the Canny operator.
+        grayscale if needed, optionally blurred, then processed with the Canny operator.
+        Defaults are tuned for 10m satellite imagery (e.g., Sentinel-2).
 
     Parameters:
         image_path (str):
             Path to the input raster image.
         output_path (str):
             Relative path (within TEMP_DIR) to write the result GeoTIFF.
-        low_threshold (float, default=50):
+        low_threshold (float, default=20):
             Lower bound for the hysteresis thresholding step.
-        high_threshold (float, default=150):
+        high_threshold (float, default=60):
             Upper bound for the hysteresis thresholding step.
+        gaussian_sigma (float, default=1.5):
+            Sigma for Gaussian pre-blur. Set to 0 to disable.
 
     Returns:
         str:
@@ -89,6 +99,9 @@ def edge_detection_canny(
         gray = _to_grayscale(img)
     else:
         gray = img
+
+    if gaussian_sigma > 0:
+        gray = cv2.GaussianBlur(gray, (0, 0), gaussian_sigma)
 
     edges = cv2.Canny(gray, low_threshold, high_threshold)
 
@@ -180,14 +193,18 @@ Description:
 Detect linear features in an image using the Hough line transform and return
 orientation statistics. Useful for identifying archaeological linear structures
 such as roads, field boundaries, or ditches.
+Defaults are calibrated for 10m resolution satellite imagery (e.g., Sentinel-2).
 
 Parameters:
 - image_path (str): Path to the input image (any GDAL-supported format, e.g. GeoTIFF).
 - output_path (str): Relative file path to save the annotated output image
                      (e.g., "results/lines.tif").
-- min_line_length (int, optional): Minimum line length in pixels. Default = 50.
+- min_line_length (int, optional): Minimum line length in pixels. Default = 5
+                                   (= ~50m at 10m/px resolution).
 - max_line_gap (int, optional): Maximum allowed gap between line segments to treat
-                                them as a single line. Default = 10.
+                                them as a single line. Default = 3 (= ~30m at 10m/px).
+- hough_threshold (int, optional): Hough accumulator threshold — minimum number of
+                                   votes for a line to be detected. Default = 50.
 
 Returns:
 - dict: {
@@ -200,25 +217,29 @@ Returns:
 def linear_feature_detection(
     image_path: str,
     output_path: str,
-    min_line_length: int = 50,
-    max_line_gap: int = 10,
+    min_line_length: int = 5,
+    max_line_gap: int = 3,
+    hough_threshold: int = 50,
 ) -> dict:
     """
     Description:
         Detect linear features using the Probabilistic Hough Line Transform.
-        Canny edge detection is applied first; detected lines are drawn on a copy
-        of the grayscale image and the result is saved. Orientation angles (0-180°)
-        are computed for each line segment.
+        Gaussian blur and Canny edge detection (tuned for satellite imagery) are
+        applied first; detected lines are drawn on a copy of the grayscale image
+        and the result is saved. Orientation angles (0-180°) are computed for each
+        line segment. Defaults calibrated for 10m/px satellite imagery.
 
     Parameters:
         image_path (str):
             Path to the input raster image.
         output_path (str):
             Relative path (within TEMP_DIR) to write the annotated result GeoTIFF.
-        min_line_length (int, default=50):
-            Minimum pixel length for a segment to be retained.
-        max_line_gap (int, default=10):
-            Maximum gap in pixels between collinear points to bridge.
+        min_line_length (int, default=5):
+            Minimum pixel length for a segment to be retained (~50m at 10m/px).
+        max_line_gap (int, default=3):
+            Maximum gap in pixels between collinear points to bridge (~30m at 10m/px).
+        hough_threshold (int, default=50):
+            Hough accumulator threshold (minimum votes to accept a line).
 
     Returns:
         dict with keys:
@@ -238,12 +259,13 @@ def linear_feature_detection(
     else:
         gray = img
 
-    edges = cv2.Canny(gray, 50, 150)
+    blurred = cv2.GaussianBlur(gray, (0, 0), 1.5)
+    edges = cv2.Canny(blurred, 20, 60)
     lines = cv2.HoughLinesP(
         edges,
         rho=1,
         theta=np.pi / 180,
-        threshold=30,
+        threshold=hough_threshold,
         minLineLength=min_line_length,
         maxLineGap=max_line_gap,
     )
@@ -285,12 +307,14 @@ Description:
 Analyze geometric patterns in an image by extracting contours and computing
 shape descriptors. Useful for detecting regular or irregular archaeological
 features such as enclosures, pits, or mounds.
+Defaults are calibrated for 10m resolution satellite imagery (e.g., Sentinel-2).
 
 Parameters:
 - image_path (str): Path to the input image (any GDAL-supported format, e.g. GeoTIFF).
 - output_path (str): Relative file path to save the annotated output image
                      (e.g., "results/shapes.tif").
-- min_area (int, optional): Minimum contour area in pixels to include. Default = 100.
+- min_area (int, optional): Minimum contour area in pixels to include. Default = 10
+                            (= ~1000 sq.m at 10m/px resolution).
 
 Returns:
 - dict: {
@@ -300,27 +324,31 @@ Returns:
   }
   Each shape dict contains:
     "area" (float), "perimeter" (float), "circularity" (float),
-    "aspect_ratio" (float), "bounding_box" ([x, y, w, h])
+    "aspect_ratio" (float), "bounding_box" ([x, y, w, h]),
+    "hu_moments" (list[float], 7 values), "solidity" (float),
+    "convex_defects_count" (int)
 ''')
 def geometric_pattern_analysis(
     image_path: str,
     output_path: str,
-    min_area: int = 100,
+    min_area: int = 10,
 ) -> dict:
     """
     Description:
         Detect contours in the image and compute shape descriptors including
         area, perimeter, circularity (4π·area/perimeter²), aspect ratio
-        (bounding box width / height), and the bounding box [x, y, w, h].
-        Contours below min_area are filtered out.
+        (bounding box width / height), bounding box [x, y, w, h], Hu moments
+        (7 rotation-invariant moments), solidity (area/convex_hull_area), and
+        convexity defects count. Contours below min_area are filtered out.
+        Default min_area = 10 pixels (~1000 sq.m at 10m/px).
 
     Parameters:
         image_path (str):
             Path to the input raster image.
         output_path (str):
             Relative path (within TEMP_DIR) to write the annotated result GeoTIFF.
-        min_area (int, default=100):
-            Minimum contour area in pixels to retain.
+        min_area (int, default=10):
+            Minimum contour area in pixels to retain (~1000 sq.m at 10m/px).
 
     Returns:
         dict with keys:
@@ -355,6 +383,27 @@ def geometric_pattern_analysis(
         x, y, w, h = cv2.boundingRect(cnt)
         aspect_ratio = float(w) / float(h) if h > 0 else 0.0
 
+        # Hu moments (7 rotation-invariant moments)
+        moments = cv2.moments(cnt)
+        hu = cv2.HuMoments(moments).flatten()
+        hu_moments = [float(v) for v in hu]
+
+        # Solidity = contour area / convex hull area
+        hull = cv2.convexHull(cnt)
+        hull_area = float(cv2.contourArea(hull))
+        solidity = area / hull_area if hull_area > 0 else 0.0
+
+        # Convexity defects count
+        try:
+            hull_idx = cv2.convexHull(cnt, returnPoints=False)
+            if hull_idx is not None and len(hull_idx) > 3 and len(cnt) > 3:
+                defects = cv2.convexityDefects(cnt, hull_idx)
+                convex_defects_count = int(len(defects)) if defects is not None else 0
+            else:
+                convex_defects_count = 0
+        except cv2.error:
+            convex_defects_count = 0
+
         cv2.drawContours(out_img, [cnt], -1, (0, 255, 0), 1)
         shapes.append({
             "area": round(area, 2),
@@ -362,6 +411,9 @@ def geometric_pattern_analysis(
             "circularity": round(float(circularity), 4),
             "aspect_ratio": round(aspect_ratio, 4),
             "bounding_box": [int(x), int(y), int(w), int(h)],
+            "hu_moments": [round(v, 8) for v in hu_moments],
+            "solidity": round(float(solidity), 4),
+            "convex_defects_count": convex_defects_count,
         })
 
     out_path = TEMP_DIR / output_path
@@ -488,14 +540,16 @@ Description:
 Compute Gray-Level Co-occurrence Matrix (GLCM) texture metrics from an image.
 GLCM features capture spatial relationships between pixel intensities and are
 widely used to characterize soil texture, surface roughness, and archaeological
-feature boundaries.
+feature boundaries. Defaults are calibrated for 10m satellite imagery (Sentinel-2).
 
 Parameters:
 - image_path (str): Path to the input image (any GDAL-supported format, e.g. GeoTIFF).
 - distances (list[int], optional): List of pixel-pair distances for GLCM computation.
-                                   Default = [1].
+                                   Default = [1, 3, 5] (multi-scale: 10m, 30m, 50m at 10m/px).
 - angles (list[float], optional): List of angles in radians for GLCM computation.
-                                  Default = [0] (0 radians = horizontal).
+                                  Default = [0, 0.785, 1.571, 2.356] (0°, 45°, 90°, 135°).
+- output_path (str, optional): If provided, compute a local texture roughness map
+                                (local std-dev proxy) and save as GeoTIFF alongside metrics.
 
 Returns:
 - dict: {
@@ -504,41 +558,49 @@ Returns:
     "entropy"     (float): Measures randomness of texture.
     "correlation" (float): Measures linear dependency of intensity levels.
     "energy"      (float): Sum of squared GLCM elements (angular second moment).
+    "texture_map_path" (str, optional): Path to texture roughness GeoTIFF if output_path given.
   }
 ''')
 def texture_analysis_glcm(
     image_path: str,
     distances: list = None,
     angles: list = None,
+    output_path: str = None,
 ) -> dict:
     """
     Description:
         Compute GLCM-based texture features from an input image.
-        The image is read via GDAL, normalized to uint8, and reduced to 8 gray
-        levels to keep the GLCM tractable. scikit-image's graycomatrix and
-        graycoprops are used to compute the standard features.
+        The image is read via GDAL, normalized to uint8, and reduced to 32 gray
+        levels. scikit-image's graycomatrix and graycoprops are used to compute
+        the standard features. Defaults use multi-scale distances [1,3,5] and
+        four angles (0°,45°,90°,135°), calibrated for 10m satellite imagery.
+        Optionally saves a local texture roughness map (local std-dev proxy).
 
     Parameters:
         image_path (str):
             Path to the input raster image.
-        distances (list[int], default=[1]):
-            Pixel-pair distances for GLCM computation.
-        angles (list[float], default=[0]):
-            Angles in radians (e.g., [0, np.pi/4, np.pi/2, 3*np.pi/4]).
+        distances (list[int], default=[1, 3, 5]):
+            Pixel-pair distances for GLCM computation (multi-scale).
+        angles (list[float], default=[0, 0.785, 1.571, 2.356]):
+            Angles in radians (0°, 45°, 90°, 135°).
+        output_path (str, default=None):
+            If provided, saves a local texture roughness (std-dev) map as GeoTIFF
+            to this relative path within TEMP_DIR.
 
     Returns:
         dict with keys:
             contrast (float), homogeneity (float), entropy (float),
             correlation (float), energy (float).
             Each value is the mean over all distance/angle combinations.
+            texture_map_path (str): Only present when output_path is given.
     """
     import numpy as np
     from skimage.feature import graycomatrix, graycoprops
 
     if distances is None:
-        distances = [1]
+        distances = [1, 3, 5]
     if angles is None:
-        angles = [0]
+        angles = [0, 0.785, 1.571, 2.356]
 
     img = read_image_uint8(image_path)
 
@@ -548,8 +610,8 @@ def texture_analysis_glcm(
     else:
         gray = img
 
-    # Reduce to 8 levels for efficient GLCM
-    levels = 8
+    # Reduce to 32 levels for efficient GLCM with better discrimination
+    levels = 32
     gray_quantized = (gray // (256 // levels)).astype(np.uint8)
     gray_quantized = np.clip(gray_quantized, 0, levels - 1)
 
@@ -567,18 +629,43 @@ def texture_analysis_glcm(
     correlation = float(np.mean(graycoprops(glcm, "correlation")))
     energy = float(np.mean(graycoprops(glcm, "energy")))
 
-    # Entropy: -sum(p * log2(p + eps))
+    # Entropy: -sum(p * log2(p + eps)) — glcm is already normed=True
     eps = 1e-10
-    glcm_norm = glcm / (glcm.sum(axis=(0, 1), keepdims=True) + eps)
-    entropy = float(-np.sum(glcm_norm * np.log2(glcm_norm + eps)))
+    entropy = float(-np.sum(glcm * np.log2(glcm + eps)))
 
-    return {
+    result = {
         "contrast": round(contrast, 6),
         "homogeneity": round(homogeneity, 6),
         "entropy": round(entropy, 6),
         "correlation": round(correlation, 6),
         "energy": round(energy, 6),
     }
+
+    # Optional texture roughness map via local std-dev proxy
+    if output_path is not None:
+        from osgeo import gdal
+        from scipy.ndimage import uniform_filter
+
+        gray_f = gray.astype(np.float64)
+        # Local std-dev: sqrt(E[x^2] - E[x]^2) using uniform_filter
+        window = 7
+        mean = uniform_filter(gray_f, size=window)
+        mean_sq = uniform_filter(gray_f ** 2, size=window)
+        variance = np.maximum(mean_sq - mean ** 2, 0.0)
+        texture_map = np.sqrt(variance).astype(np.float32)
+
+        out_path = TEMP_DIR / output_path
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        driver = gdal.GetDriverByName("GTiff")
+        out_ds = driver.Create(str(out_path), texture_map.shape[1], texture_map.shape[0], 1, gdal.GDT_Float32)
+        out_ds.GetRasterBand(1).WriteArray(texture_map)
+        out_ds.FlushCache()
+        out_ds = None
+
+        result["texture_map_path"] = str(out_path)
+
+    return result
 
 
 @mcp.tool(description='''
@@ -976,7 +1063,8 @@ Parameters:
 - output_path (str): Relative file path to save the anomaly distance map
                      (e.g., "results/anomalies.tif").
 - threshold_sigma (float, optional): Number of standard deviations above the mean
-                                     distance to use as anomaly threshold. Default = 2.0.
+                                     distance to use as anomaly threshold. Default = 2.5
+                                     (calibrated for satellite imagery to reduce false positives).
 
 Returns:
 - dict: {
@@ -988,7 +1076,7 @@ Returns:
 def spectral_anomaly_detection(
     image_path: str,
     output_path: str,
-    threshold_sigma: float = 2.0,
+    threshold_sigma: float = 2.5,
 ) -> dict:
     """
     Detect spectral anomalies using Mahalanobis distance on multi-band imagery.
@@ -996,7 +1084,7 @@ def spectral_anomaly_detection(
     Parameters:
         image_path (str): Path to the input raster image.
         output_path (str): Relative path (within TEMP_DIR) to write the distance map GeoTIFF.
-        threshold_sigma (float, default=2.0): Threshold in standard deviations above mean distance.
+        threshold_sigma (float, default=2.5): Threshold in standard deviations above mean distance.
 
     Returns:
         dict with keys:
