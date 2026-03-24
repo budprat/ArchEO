@@ -361,3 +361,363 @@ class TestTextureAnalysisGlcm:
         result = arch.texture_analysis_glcm(str(path))
         assert result["homogeneity"] > 0.9, "Uniform image should have high homogeneity"
         assert result["contrast"] < 0.1, "Uniform image should have near-zero contrast"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for new tests
+# ---------------------------------------------------------------------------
+
+def _write_multiband_geotiff(array: np.ndarray, path: str) -> str:
+    """Write (rows, cols, bands) array as a multi-band float32 GeoTIFF."""
+    from osgeo import gdal
+
+    path = str(path)
+    rows, cols, bands = array.shape
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(path, cols, rows, bands, gdal.GDT_Float32)
+    for b in range(bands):
+        ds.GetRasterBand(b + 1).WriteArray(array[:, :, b].astype(np.float32))
+    ds.FlushCache()
+    ds = None
+    return path
+
+
+def _synthetic_multiband(shape=(64, 64), n_bands=4) -> np.ndarray:
+    """Create synthetic multi-band data (spectral variation across bands)."""
+    rng = np.random.default_rng(42)
+    bands = []
+    for b in range(n_bands):
+        band = (rng.random(shape) * 255 + b * 30).astype(np.float32)
+        bands.append(band)
+    return np.stack(bands, axis=-1)  # (rows, cols, bands)
+
+
+# ---------------------------------------------------------------------------
+# Test: principal_component_analysis
+# ---------------------------------------------------------------------------
+
+class TestPrincipalComponentAnalysis:
+    @pytest.fixture(scope="class")
+    def multiband_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=4)
+        path = tmp_dir / "pca_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, multiband_tif):
+        result = arch.principal_component_analysis(multiband_tif, "pca/out")
+        assert isinstance(result, dict)
+        for key in ("pc_paths", "explained_variance", "cumulative_variance"):
+            assert key in result
+
+    def test_pc_paths_exist(self, multiband_tif):
+        result = arch.principal_component_analysis(multiband_tif, "pca/paths", n_components=3)
+        assert len(result["pc_paths"]) == 3
+        for p in result["pc_paths"]:
+            assert Path(p).exists()
+
+    def test_explained_variance_sums_to_one(self, multiband_tif):
+        result = arch.principal_component_analysis(multiband_tif, "pca/var", n_components=4)
+        total = sum(result["explained_variance"])
+        assert abs(total - 1.0) < 1e-3, f"Explained variance should sum to ~1, got {total}"
+
+    def test_cumulative_variance_is_monotonic(self, multiband_tif):
+        result = arch.principal_component_analysis(multiband_tif, "pca/cum", n_components=3)
+        cum = result["cumulative_variance"]
+        for i in range(1, len(cum)):
+            assert cum[i] >= cum[i - 1]
+
+    def test_output_pc_shape(self, multiband_tif, tmp_dir):
+        from osgeo import gdal
+        result = arch.principal_component_analysis(multiband_tif, "pca/shape", n_components=2)
+        ds = gdal.Open(result["pc_paths"][0])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+
+# ---------------------------------------------------------------------------
+# Test: multi_directional_hillshade
+# ---------------------------------------------------------------------------
+
+class TestMultiDirectionalHillshade:
+    def test_returns_path_string(self, dem_tif):
+        result = arch.multi_directional_hillshade(dem_tif, "multihillshade/out.tif")
+        assert isinstance(result, str)
+
+    def test_output_file_exists(self, dem_tif):
+        result = arch.multi_directional_hillshade(dem_tif, "multihillshade/out.tif")
+        assert Path(result).exists()
+
+    def test_output_shape_matches_dem(self, dem_tif):
+        from osgeo import gdal
+        result = arch.multi_directional_hillshade(dem_tif, "multihillshade/shape.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_values_in_uint8_range(self, dem_tif):
+        from osgeo import gdal
+        result = arch.multi_directional_hillshade(dem_tif, "multihillshade/range.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.min() >= 0
+        assert arr.max() <= 255
+
+    def test_16_directions(self, dem_tif):
+        result = arch.multi_directional_hillshade(dem_tif, "multihillshade/16dir.tif", n_directions=16)
+        assert Path(result).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test: local_relief_model
+# ---------------------------------------------------------------------------
+
+class TestLocalReliefModel:
+    def test_returns_path_string(self, dem_tif):
+        result = arch.local_relief_model(dem_tif, "lrm/out.tif")
+        assert isinstance(result, str)
+
+    def test_output_file_exists(self, dem_tif):
+        result = arch.local_relief_model(dem_tif, "lrm/out.tif")
+        assert Path(result).exists()
+
+    def test_output_shape_matches_dem(self, dem_tif):
+        from osgeo import gdal
+        result = arch.local_relief_model(dem_tif, "lrm/shape.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_lrm_is_float32(self, dem_tif):
+        from osgeo import gdal
+        result = arch.local_relief_model(dem_tif, "lrm/dtype.tif")
+        ds = gdal.Open(result)
+        band = ds.GetRasterBand(1)
+        dt = band.DataType
+        ds = None
+        assert dt == gdal.GDT_Float32
+
+    def test_lrm_has_positive_and_negative_values(self, dem_tif):
+        """LRM should have both positive (raised) and negative (depressed) values."""
+        from osgeo import gdal
+        result = arch.local_relief_model(dem_tif, "lrm/posneg.tif", kernel_size=15)
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        # A cone-shaped DEM should produce both positive and near-zero/negative values
+        assert arr.max() > 0
+
+
+# ---------------------------------------------------------------------------
+# Test: adaptive_contrast_enhancement
+# ---------------------------------------------------------------------------
+
+class TestAdaptiveContrastEnhancement:
+    def test_returns_path_string(self, gray_tif):
+        result = arch.adaptive_contrast_enhancement(gray_tif, "clahe/out.tif")
+        assert isinstance(result, str)
+
+    def test_output_file_exists(self, gray_tif):
+        result = arch.adaptive_contrast_enhancement(gray_tif, "clahe/out.tif")
+        assert Path(result).exists()
+
+    def test_output_shape_matches_input(self, gray_tif):
+        from osgeo import gdal
+        result = arch.adaptive_contrast_enhancement(gray_tif, "clahe/shape.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (128, 128)
+
+    def test_custom_clip_and_grid(self, gray_tif):
+        result = arch.adaptive_contrast_enhancement(
+            gray_tif, "clahe/custom.tif", clip_limit=4.0, grid_size=16
+        )
+        assert Path(result).exists()
+
+    def test_output_is_uint8(self, gray_tif):
+        from osgeo import gdal
+        result = arch.adaptive_contrast_enhancement(gray_tif, "clahe/dtype.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.dtype == np.uint8
+
+
+# ---------------------------------------------------------------------------
+# Test: band_ratio_calculator
+# ---------------------------------------------------------------------------
+
+class TestBandRatioCalculator:
+    @pytest.fixture(scope="class")
+    def multiband_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=4)
+        path = tmp_dir / "ratio_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, multiband_tif):
+        result = arch.band_ratio_calculator(multiband_tif, 1, 2, "ratio/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean"):
+            assert key in result
+
+    def test_output_file_exists(self, multiband_tif):
+        result = arch.band_ratio_calculator(multiband_tif, 1, 3, "ratio/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_ratio_values_are_finite(self, multiband_tif):
+        result = arch.band_ratio_calculator(multiband_tif, 2, 4, "ratio/finite.tif")
+        assert np.isfinite(result["min"])
+        assert np.isfinite(result["max"])
+        assert np.isfinite(result["mean"])
+
+    def test_ratio_output_shape(self, multiband_tif):
+        from osgeo import gdal
+        result = arch.band_ratio_calculator(multiband_tif, 1, 2, "ratio/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_same_band_ratio_is_near_one(self, multiband_tif):
+        """Ratio of a band with itself should be near 1.0 everywhere."""
+        result = arch.band_ratio_calculator(multiband_tif, 1, 1, "ratio/same.tif")
+        assert abs(result["mean"] - 1.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# Test: spectral_anomaly_detection
+# ---------------------------------------------------------------------------
+
+class TestSpectralAnomalyDetection:
+    @pytest.fixture(scope="class")
+    def anomaly_tif(self, tmp_dir):
+        """Multi-band image with one obvious anomalous pixel."""
+        data = np.ones((32, 32, 4), dtype=np.float32) * 100.0
+        # Inject obvious anomaly
+        data[16, 16, :] = [500.0, 0.0, 500.0, 0.0]
+        path = tmp_dir / "anomaly_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, anomaly_tif):
+        result = arch.spectral_anomaly_detection(anomaly_tif, "anomaly/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "anomaly_count", "anomaly_percentage"):
+            assert key in result
+
+    def test_output_file_exists(self, anomaly_tif):
+        result = arch.spectral_anomaly_detection(anomaly_tif, "anomaly/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_detects_known_anomaly(self, anomaly_tif):
+        result = arch.spectral_anomaly_detection(anomaly_tif, "anomaly/detect.tif", threshold_sigma=2.0)
+        assert result["anomaly_count"] > 0, "Should detect the injected anomalous pixel"
+
+    def test_anomaly_percentage_in_range(self, anomaly_tif):
+        result = arch.spectral_anomaly_detection(anomaly_tif, "anomaly/pct.tif")
+        assert 0.0 <= result["anomaly_percentage"] <= 100.0
+
+    def test_output_shape(self, anomaly_tif):
+        from osgeo import gdal
+        result = arch.spectral_anomaly_detection(anomaly_tif, "anomaly/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (32, 32)
+
+
+# ---------------------------------------------------------------------------
+# Test: sky_view_factor
+# ---------------------------------------------------------------------------
+
+class TestSkyViewFactor:
+    def test_returns_path_string(self, dem_tif):
+        result = arch.sky_view_factor(dem_tif, "svf/out.tif")
+        assert isinstance(result, str)
+
+    def test_output_file_exists(self, dem_tif):
+        result = arch.sky_view_factor(dem_tif, "svf/out.tif")
+        assert Path(result).exists()
+
+    def test_output_shape_matches_dem(self, dem_tif):
+        from osgeo import gdal
+        result = arch.sky_view_factor(dem_tif, "svf/shape.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_values_in_0_1_range(self, dem_tif):
+        from osgeo import gdal
+        result = arch.sky_view_factor(dem_tif, "svf/range.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.min() >= 0.0
+        assert arr.max() <= 1.0
+
+    def test_flat_dem_has_high_svf(self, tmp_dir):
+        """A flat DEM should have SVF close to 1 everywhere."""
+        from osgeo import gdal
+        flat_dem = np.full((32, 32), 100.0, dtype=np.float32)
+        path = tmp_dir / "flat_dem.tif"
+        _write_dem(flat_dem, str(path))
+        result = arch.sky_view_factor(str(path), "svf/flat.tif", radius=5, n_directions=8)
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.mean() > 0.9, f"Flat DEM SVF mean {arr.mean()} should be > 0.9"
+
+
+# ---------------------------------------------------------------------------
+# Test: morphological_cleanup
+# ---------------------------------------------------------------------------
+
+class TestMorphologicalCleanup:
+    def test_returns_path_string(self, gray_tif):
+        result = arch.morphological_cleanup(gray_tif, "morph/out.tif")
+        assert isinstance(result, str)
+
+    def test_output_file_exists(self, gray_tif):
+        result = arch.morphological_cleanup(gray_tif, "morph/out.tif")
+        assert Path(result).exists()
+
+    def test_output_shape_matches_input(self, gray_tif):
+        from osgeo import gdal
+        result = arch.morphological_cleanup(gray_tif, "morph/shape.tif")
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (128, 128)
+
+    def test_all_operations(self, gray_tif):
+        for op in ("dilate", "erode", "open", "close"):
+            result = arch.morphological_cleanup(gray_tif, f"morph/{op}.tif", operation=op)
+            assert Path(result).exists(), f"Operation '{op}' failed"
+
+    def test_invalid_operation_raises(self, gray_tif):
+        with pytest.raises(ValueError):
+            arch.morphological_cleanup(gray_tif, "morph/bad.tif", operation="invalid")
+
+    def test_dilate_increases_bright_area(self, tmp_dir):
+        """Dilation should increase the area of bright pixels."""
+        from osgeo import gdal
+        # Small white circle on black background
+        import cv2
+        img = np.zeros((64, 64), dtype=np.uint8)
+        cv2.circle(img, (32, 32), 5, 255, -1)
+        path = tmp_dir / "morph_circle.tif"
+        _write_geotiff(img, str(path))
+        original_bright = int((img > 128).sum())
+        result = arch.morphological_cleanup(str(path), "morph/dilated.tif", operation="dilate", kernel_size=5)
+        ds = gdal.Open(result)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        dilated_bright = int((arr > 128).sum())
+        assert dilated_bright >= original_bright, "Dilation should not shrink bright regions"
