@@ -14,6 +14,24 @@ TEMP_DIR = Path(args.temp_dir)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_input(image_path: str) -> str:
+    """Resolve input path — try as-is first, then under TEMP_DIR."""
+    from pathlib import Path as _P
+    p = _P(image_path)
+    if p.exists():
+        return str(p)
+    # Try under TEMP_DIR (agent may pass relative output_path from a previous tool)
+    under_temp = TEMP_DIR / image_path
+    if under_temp.exists():
+        return str(under_temp)
+    # Try just the filename under TEMP_DIR
+    under_temp_name = TEMP_DIR / p.name
+    if under_temp_name.exists():
+        return str(under_temp_name)
+    # Return original — let the tool raise its own error
+    return image_path
+
+
 def _to_grayscale(img):
     """Convert any image (1-band, 3-band, or N-band) to single-channel grayscale uint8."""
     import cv2
@@ -93,7 +111,7 @@ def edge_detection_canny(
     import numpy as np
     from osgeo import gdal
 
-    img = read_image_uint8(image_path)
+    img = read_image_uint8(_resolve_input(image_path))
 
     if img.ndim == 3:
         gray = _to_grayscale(img)
@@ -157,7 +175,7 @@ def edge_detection_sobel(
     import numpy as np
     from osgeo import gdal
 
-    img = read_image_uint8(image_path)
+    img = read_image_uint8(_resolve_input(image_path))
 
     if img.ndim == 3:
         gray = _to_grayscale(img)
@@ -252,7 +270,7 @@ def linear_feature_detection(
     import numpy as np
     from osgeo import gdal
 
-    img = read_image_uint8(image_path)
+    img = read_image_uint8(_resolve_input(image_path))
 
     if img.ndim == 3:
         gray = _to_grayscale(img)
@@ -305,8 +323,10 @@ def linear_feature_detection(
 @mcp.tool(description='''
 Description:
 Analyze geometric patterns in an image by extracting contours and computing
-shape descriptors. Useful for detecting regular or irregular archaeological
-features such as enclosures, pits, or mounds.
+shape descriptors. Best results when run on PRE-PROCESSED input such as edge
+detection output, PCA components, or CLAHE-enhanced images rather than raw
+satellite imagery. Uses adaptive thresholding and RETR_TREE to capture nested
+structures like the Nazca monkey's spiral tail.
 Defaults are calibrated for 10m resolution satellite imagery (e.g., Sentinel-2).
 
 Parameters:
@@ -360,15 +380,28 @@ def geometric_pattern_analysis(
     import numpy as np
     from osgeo import gdal
 
-    img = read_image_uint8(image_path)
+    img = read_image_uint8(_resolve_input(image_path))
 
     if img.ndim == 3:
         gray = _to_grayscale(img)
     else:
         gray = img
 
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Use adaptive thresholding for better detection of subtle features
+    # in satellite imagery (Otsu fails on low-contrast geoglyph lines)
+    # If input is already binary/edge (max ~255, mostly 0), use simple threshold
+    nonzero_ratio = np.count_nonzero(gray) / gray.size
+    if nonzero_ratio < 0.3:
+        # Input looks like an edge map — simple threshold
+        _, binary = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
+    else:
+        # Raw image — use adaptive threshold for local contrast
+        binary = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, blockSize=51, C=-5
+        )
+    # Use RETR_TREE to capture nested structures (e.g., monkey's spiral tail)
+    contours, _ = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     out_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     shapes = []
@@ -481,7 +514,7 @@ def dem_hillshade(
     import numpy as np
     from osgeo import gdal
 
-    ds = gdal.Open(dem_path)
+    ds = gdal.Open(_resolve_input(dem_path))
     if ds is None:
         raise RuntimeError(f"Failed to open DEM: {dem_path}")
 
@@ -602,7 +635,7 @@ def texture_analysis_glcm(
     if angles is None:
         angles = [0, 0.785, 1.571, 2.356]
 
-    img = read_image_uint8(image_path)
+    img = read_image_uint8(_resolve_input(image_path))
 
     if img.ndim == 3:
         import cv2
@@ -711,7 +744,7 @@ def principal_component_analysis(
     from osgeo import gdal
     from sklearn.decomposition import PCA
 
-    ds = gdal.Open(image_path)
+    ds = gdal.Open(_resolve_input(image_path))
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
@@ -801,7 +834,7 @@ def multi_directional_hillshade(
     import numpy as np
     from osgeo import gdal
 
-    ds = gdal.Open(dem_path)
+    ds = gdal.Open(_resolve_input(dem_path))
     if ds is None:
         raise RuntimeError(f"Failed to open DEM: {dem_path}")
 
@@ -883,7 +916,7 @@ def local_relief_model(
     from osgeo import gdal
     from scipy.ndimage import uniform_filter
 
-    ds = gdal.Open(dem_path)
+    ds = gdal.Open(_resolve_input(dem_path))
     if ds is None:
         raise RuntimeError(f"Failed to open DEM: {dem_path}")
 
@@ -953,7 +986,7 @@ def adaptive_contrast_enhancement(
     import numpy as np
     from osgeo import gdal
 
-    img = read_image_uint8(image_path)
+    img = read_image_uint8(_resolve_input(image_path))
     gray = _to_grayscale(img)
 
     clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(grid_size, grid_size))
@@ -1018,7 +1051,7 @@ def band_ratio_calculator(
     import numpy as np
     from osgeo import gdal
 
-    ds = gdal.Open(image_path)
+    ds = gdal.Open(_resolve_input(image_path))
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
@@ -1095,7 +1128,7 @@ def spectral_anomaly_detection(
     import numpy as np
     from osgeo import gdal
 
-    ds = gdal.Open(image_path)
+    ds = gdal.Open(_resolve_input(image_path))
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
@@ -1197,7 +1230,7 @@ def sky_view_factor(
     import numpy as np
     from osgeo import gdal
 
-    ds = gdal.Open(dem_path)
+    ds = gdal.Open(_resolve_input(dem_path))
     if ds is None:
         raise RuntimeError(f"Failed to open DEM: {dem_path}")
 
@@ -1316,7 +1349,7 @@ def morphological_cleanup(
     if operation not in op_map:
         raise ValueError(f"operation must be one of {list(op_map.keys())}, got '{operation}'")
 
-    img = read_image_uint8(image_path)
+    img = read_image_uint8(_resolve_input(image_path))
     gray = _to_grayscale(img)
 
     kernel = cv2.getStructuringElement(
@@ -1335,6 +1368,395 @@ def morphological_cleanup(
     out_ds = None
 
     return str(out_path)
+
+
+@mcp.tool(description='''
+Change Vector Analysis on two multi-band images.
+Computes per-pixel CVA magnitude across all bands, optionally with histogram matching.
+Params: image_path_1, image_path_2, output_path, match_histograms (bool, default=True).
+Returns: dict {image_path, mean_change, max_change, changed_pixel_count}.
+''')
+def temporal_difference_map(
+    image_path_1: str,
+    image_path_2: str,
+    output_path: str,
+    match_histograms: bool = True,
+) -> dict:
+    import numpy as np
+    from osgeo import gdal
+
+    ds1 = gdal.Open(_resolve_input(image_path_1))
+    ds2 = gdal.Open(_resolve_input(image_path_2))
+
+    if ds1 is None:
+        raise FileNotFoundError(f"Cannot open: {image_path_1}")
+    if ds2 is None:
+        raise FileNotFoundError(f"Cannot open: {image_path_2}")
+
+    rows1, cols1 = ds1.RasterYSize, ds1.RasterXSize
+    rows2, cols2 = ds2.RasterYSize, ds2.RasterXSize
+    if rows1 != rows2 or cols1 != cols2:
+        raise ValueError(f"Image dimensions differ: ({rows1},{cols1}) vs ({rows2},{cols2})")
+
+    n_bands = min(ds1.RasterCount, ds2.RasterCount)
+
+    img1 = np.stack([ds1.GetRasterBand(b + 1).ReadAsArray().astype(np.float32) for b in range(n_bands)], axis=-1)
+    img2 = np.stack([ds2.GetRasterBand(b + 1).ReadAsArray().astype(np.float32) for b in range(n_bands)], axis=-1)
+    ds1 = ds2 = None
+
+    if match_histograms:
+        from skimage.exposure import match_histograms
+        img2 = match_histograms(img2, img1, channel_axis=-1).astype(np.float32)
+
+    diff = img1 - img2
+    magnitude = np.sqrt(np.sum(diff ** 2, axis=-1))
+
+    mean_change = float(magnitude.mean())
+    max_change = float(magnitude.max())
+    threshold = mean_change + 2 * magnitude.std()
+    changed_pixel_count = int((magnitude > threshold).sum())
+
+    mag_min, mag_max = magnitude.min(), magnitude.max()
+    if mag_max > mag_min:
+        magnitude_u8 = ((magnitude - mag_min) / (mag_max - mag_min) * 255).astype(np.uint8)
+    else:
+        magnitude_u8 = np.zeros_like(magnitude, dtype=np.uint8)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), cols1, rows1, 1, gdal.GDT_Byte)
+    out_ds.GetRasterBand(1).WriteArray(magnitude_u8)
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "mean_change": mean_change,
+        "max_change": max_change,
+        "changed_pixel_count": changed_pixel_count,
+    }
+
+
+@mcp.tool(description='''
+LBP entropy and edge orientation analysis for detecting man-made features.
+Low LBP entropy indicates regularity (potentially man-made structures).
+Params: image_path, output_path, window_size (int, default=15).
+Returns: dict {image_path, mean_regularity, high_regularity_percentage}.
+''')
+def regularity_index(
+    image_path: str,
+    output_path: str,
+    window_size: int = 15,
+) -> dict:
+    import numpy as np
+    from scipy import ndimage
+    from skimage.feature import local_binary_pattern
+
+    img = read_image_uint8(_resolve_input(image_path))
+    gray = _to_grayscale(img).astype(np.float64)
+
+    lbp = local_binary_pattern(gray, P=8, R=1, method='uniform')
+
+    def _entropy(values):
+        values = values.astype(np.int32)
+        counts = np.bincount(values, minlength=10)
+        probs = counts / (counts.sum() + 1e-10)
+        probs = probs[probs > 0]
+        return -np.sum(probs * np.log2(probs + 1e-10))
+
+    lbp_entropy = ndimage.generic_filter(lbp, _entropy, size=window_size)
+
+    ent_min, ent_max = lbp_entropy.min(), lbp_entropy.max()
+    if ent_max > ent_min:
+        norm_entropy = (lbp_entropy - ent_min) / (ent_max - ent_min)
+    else:
+        norm_entropy = np.zeros_like(lbp_entropy)
+
+    regularity = (1.0 - norm_entropy).astype(np.float32)
+
+    mean_regularity = float(regularity.mean())
+    high_regularity_percentage = float((regularity > 0.7).sum() / regularity.size * 100)
+
+    reg_u8 = (regularity * 255).astype(np.uint8)
+
+    from osgeo import gdal
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows, cols = reg_u8.shape
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), cols, rows, 1, gdal.GDT_Byte)
+    out_ds.GetRasterBand(1).WriteArray(reg_u8)
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "mean_regularity": mean_regularity,
+        "high_regularity_percentage": high_regularity_percentage,
+    }
+
+
+@mcp.tool(description='''
+NDVI local z-score for detecting buried features via vegetation anomalies.
+Positive z-score = wetter (ditches), negative z-score = drier (walls).
+Params: image_path, output_path, window_size (int, default=25).
+Returns: dict {image_path, positive_anomaly_count, negative_anomaly_count, mean_zscore}.
+''')
+def crop_mark_detector(
+    image_path: str,
+    output_path: str,
+    window_size: int = 25,
+) -> dict:
+    import numpy as np
+    from osgeo import gdal
+    from scipy import ndimage
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise FileNotFoundError(f"Cannot open: {image_path}")
+
+    n_bands = ds.RasterCount
+    rows, cols = ds.RasterYSize, ds.RasterXSize
+
+    if n_bands >= 8:
+        # Sentinel-2: NDVI = (B8 - B4) / (B8 + B4)
+        b4 = ds.GetRasterBand(4).ReadAsArray().astype(np.float32)
+        b8 = ds.GetRasterBand(8).ReadAsArray().astype(np.float32)
+        index_map = (b8 - b4) / (b8 + b4 + 1e-10)
+    elif n_bands >= 4:
+        # Use band4 as proxy for NIR, band3 as red
+        b_red = ds.GetRasterBand(3).ReadAsArray().astype(np.float32)
+        b_nir = ds.GetRasterBand(4).ReadAsArray().astype(np.float32)
+        index_map = (b_nir - b_red) / (b_nir + b_red + 1e-10)
+    else:
+        # Fallback: grayscale intensity
+        img = read_image_uint8(_resolve_input(image_path))
+        gray = _to_grayscale(img)
+        index_map = gray.astype(np.float32) / 255.0
+    ds = None
+
+    local_mean = ndimage.uniform_filter(index_map, size=window_size).astype(np.float32)
+    local_sq_mean = ndimage.uniform_filter(index_map ** 2, size=window_size).astype(np.float32)
+    local_var = np.maximum(local_sq_mean - local_mean ** 2, 0)
+    local_std = np.sqrt(local_var)
+
+    z_score = (index_map - local_mean) / (local_std + 1e-10)
+
+    positive_anomaly_count = int((z_score > 1.5).sum())
+    negative_anomaly_count = int((z_score < -1.5).sum())
+    mean_zscore = float(z_score.mean())
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), cols, rows, 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(z_score.astype(np.float32))
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "positive_anomaly_count": positive_anomaly_count,
+        "negative_anomaly_count": negative_anomaly_count,
+        "mean_zscore": mean_zscore,
+    }
+
+
+@mcp.tool(description='''
+Contour shape analysis: aspect ratio, compactness, solidity, and orientation histogram.
+Detects dominant orientations in man-made features via orientation histogram peaks.
+Params: image_path, output_path, min_area (int, default=10).
+Returns: dict {image_path, shape_count, dominant_orientations, mean_compactness, mean_aspect_ratio, orientation_histogram}.
+''')
+def shape_statistics(
+    image_path: str,
+    output_path: str,
+    min_area: int = 10,
+) -> dict:
+    import cv2
+    import numpy as np
+    from osgeo import gdal
+
+    img = read_image_uint8(_resolve_input(image_path))
+    gray = _to_grayscale(img)
+
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    shapes = []
+    orientations_all = []
+
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < min_area:
+            continue
+        perimeter = cv2.arcLength(cnt, True)
+        if perimeter == 0:
+            continue
+
+        compactness = (4 * np.pi * area) / (perimeter ** 2)
+        hull = cv2.convexHull(cnt)
+        hull_area = cv2.contourArea(hull)
+        solidity = area / hull_area if hull_area > 0 else 0.0
+
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect_ratio = float(w) / h if h > 0 else 1.0
+
+        if len(cnt) >= 5:
+            (_, _), (ma, MA), angle = cv2.fitEllipse(cnt)
+            orientation = float(angle)
+        else:
+            orientation = 0.0
+
+        orientations_all.append(orientation % 180)
+        shapes.append({
+            "aspect_ratio": round(aspect_ratio, 4),
+            "compactness": round(float(compactness), 4),
+            "solidity": round(float(solidity), 4),
+            "orientation": round(orientation % 180, 2),
+        })
+
+    # Orientation histogram: 18 bins (0-180 degrees)
+    if orientations_all:
+        hist, _ = np.histogram(orientations_all, bins=18, range=(0, 180))
+        orientation_histogram = hist.tolist()
+        # Find dominant orientations (local peaks in histogram)
+        peaks = []
+        for i in range(len(hist)):
+            left = hist[(i - 1) % 18]
+            right = hist[(i + 1) % 18]
+            if hist[i] > 0 and hist[i] >= left and hist[i] >= right:
+                angle_center = (i + 0.5) * 10  # bin center in degrees
+                peaks.append(round(angle_center, 1))
+        peaks.sort(key=lambda a: -hist[int(a / 10) % 18])
+        dominant_orientations = peaks[:5]
+    else:
+        orientation_histogram = [0] * 18
+        dominant_orientations = []
+
+    mean_compactness = float(np.mean([s["compactness"] for s in shapes])) if shapes else 0.0
+    mean_aspect_ratio = float(np.mean([s["aspect_ratio"] for s in shapes])) if shapes else 0.0
+
+    # Save binary/contour image as output
+    vis = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) if gray.ndim == 2 else img.copy()
+    cv2.drawContours(vis, contours, -1, (0, 255, 0), 1)
+    vis_gray = cv2.cvtColor(vis, cv2.COLOR_BGR2GRAY)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows, cols = vis_gray.shape
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), cols, rows, 1, gdal.GDT_Byte)
+    out_ds.GetRasterBand(1).WriteArray(vis_gray)
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "shape_count": len(shapes),
+        "dominant_orientations": dominant_orientations,
+        "mean_compactness": round(mean_compactness, 4),
+        "mean_aspect_ratio": round(mean_aspect_ratio, 4),
+        "orientation_histogram": orientation_histogram,
+    }
+
+
+@mcp.tool(description='''
+Divide image into tiles and compute Archaeological Potential Score (APS) per tile.
+APS = 0.4*edge_density + 0.3*contrast + 0.3*anomaly_score.
+Params: image_path, output_path, grid_size (int, default=10).
+Returns: dict {image_path, top_tiles, max_score, mean_score}.
+''')
+def systematic_grid_analysis(
+    image_path: str,
+    output_path: str,
+    grid_size: int = 10,
+) -> dict:
+    import cv2
+    import numpy as np
+    from osgeo import gdal
+
+    img = read_image_uint8(_resolve_input(image_path))
+    gray = _to_grayscale(img).astype(np.float32)
+
+    rows, cols = gray.shape
+    tile_h = rows // grid_size
+    tile_w = cols // grid_size
+
+    if tile_h == 0 or tile_w == 0:
+        raise ValueError(f"grid_size={grid_size} too large for image of size {rows}x{cols}")
+
+    image_mean = float(gray.mean())
+    image_std = float(gray.std()) + 1e-10
+
+    aps_grid = np.zeros((grid_size, grid_size), dtype=np.float32)
+    edge_densities = []
+    contrasts = []
+    anomaly_scores = []
+
+    for row_i in range(grid_size):
+        for col_i in range(grid_size):
+            r0, r1 = row_i * tile_h, (row_i + 1) * tile_h
+            c0, c1 = col_i * tile_w, (col_i + 1) * tile_w
+            tile = gray[r0:r1, c0:c1]
+
+            tile_u8 = tile.astype(np.uint8)
+            edges = cv2.Canny(tile_u8, 20, 60)
+            edge_density = float(edges.sum() / 255) / tile.size
+            contrast = float(tile.std()) / 255.0
+            tile_mean = float(tile.mean())
+            anomaly_score = abs(tile_mean - image_mean) / image_std
+
+            edge_densities.append(edge_density)
+            contrasts.append(contrast)
+            anomaly_scores.append(anomaly_score)
+
+    # Normalize each metric to [0, 1]
+    def _norm(arr):
+        mn, mx = min(arr), max(arr)
+        if mx > mn:
+            return [(v - mn) / (mx - mn) for v in arr]
+        return [0.0] * len(arr)
+
+    ed_n = _norm(edge_densities)
+    ct_n = _norm(contrasts)
+    an_n = _norm(anomaly_scores)
+
+    top_tiles = []
+    idx = 0
+    for row_i in range(grid_size):
+        for col_i in range(grid_size):
+            aps = 0.4 * ed_n[idx] + 0.3 * ct_n[idx] + 0.3 * an_n[idx]
+            aps_grid[row_i, col_i] = aps
+            top_tiles.append({"row": row_i, "col": col_i, "score": round(float(aps), 4)})
+            idx += 1
+
+    top_tiles.sort(key=lambda t: -t["score"])
+    top_tiles = top_tiles[:10]
+
+    # Upscale APS heatmap to original image size
+    aps_upscaled = cv2.resize(aps_grid, (cols, rows), interpolation=cv2.INTER_LINEAR)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), cols, rows, 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(aps_upscaled.astype(np.float32))
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "top_tiles": top_tiles,
+        "max_score": round(float(aps_grid.max()), 4),
+        "mean_score": round(float(aps_grid.mean()), 4),
+    }
 
 
 if __name__ == "__main__":

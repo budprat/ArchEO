@@ -721,3 +721,194 @@ class TestMorphologicalCleanup:
         ds = None
         dilated_bright = int((arr > 128).sum())
         assert dilated_bright >= original_bright, "Dilation should not shrink bright regions"
+
+
+# ---------------------------------------------------------------------------
+# Test: temporal_difference_map
+# ---------------------------------------------------------------------------
+
+class TestTemporalDifferenceMap:
+    @pytest.fixture(scope="class")
+    def two_tifs(self, tmp_dir):
+        img1 = _synthetic_multiband((64, 64), n_bands=3)
+        img2 = img1 + np.random.default_rng(7).integers(-30, 30, img1.shape).astype(np.float32)
+        path1 = tmp_dir / "tdm_img1.tif"
+        path2 = tmp_dir / "tdm_img2.tif"
+        _write_multiband_geotiff(img1, str(path1))
+        _write_multiband_geotiff(img2, str(path2))
+        return str(path1), str(path2)
+
+    def test_returns_dict_with_required_keys(self, two_tifs):
+        p1, p2 = two_tifs
+        result = arch.temporal_difference_map(p1, p2, "tdm/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "mean_change", "max_change", "changed_pixel_count"):
+            assert key in result
+
+    def test_output_file_exists(self, two_tifs):
+        p1, p2 = two_tifs
+        result = arch.temporal_difference_map(p1, p2, "tdm/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_values_are_numeric(self, two_tifs):
+        p1, p2 = two_tifs
+        result = arch.temporal_difference_map(p1, p2, "tdm/numeric.tif")
+        assert isinstance(result["mean_change"], float)
+        assert isinstance(result["max_change"], float)
+        assert isinstance(result["changed_pixel_count"], int)
+        assert result["max_change"] >= result["mean_change"] >= 0
+
+    def test_identical_images_zero_change(self, tmp_dir):
+        img = _synthetic_multiband((32, 32), n_bands=3)
+        p = tmp_dir / "tdm_same.tif"
+        _write_multiband_geotiff(img, str(p))
+        result = arch.temporal_difference_map(str(p), str(p), "tdm/zero.tif", match_histograms=False)
+        assert result["mean_change"] < 1e-3
+
+    def test_output_shape(self, two_tifs):
+        from osgeo import gdal
+        p1, p2 = two_tifs
+        result = arch.temporal_difference_map(p1, p2, "tdm/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+
+# ---------------------------------------------------------------------------
+# Test: regularity_index
+# ---------------------------------------------------------------------------
+
+class TestRegularityIndex:
+    def test_returns_dict_with_required_keys(self, gray_tif):
+        result = arch.regularity_index(gray_tif, "reg/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "mean_regularity", "high_regularity_percentage"):
+            assert key in result
+
+    def test_output_file_exists(self, gray_tif):
+        result = arch.regularity_index(gray_tif, "reg/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_mean_regularity_in_range(self, gray_tif):
+        result = arch.regularity_index(gray_tif, "reg/range.tif")
+        assert 0.0 <= result["mean_regularity"] <= 1.0
+
+    def test_high_regularity_pct_in_range(self, gray_tif):
+        result = arch.regularity_index(gray_tif, "reg/pct.tif")
+        assert 0.0 <= result["high_regularity_percentage"] <= 100.0
+
+    def test_uniform_image_high_regularity(self, tmp_dir):
+        """A uniform image should score high regularity."""
+        img = np.full((64, 64), 128, dtype=np.uint8)
+        p = tmp_dir / "reg_uniform.tif"
+        _write_geotiff(img, str(p))
+        result = arch.regularity_index(str(p), "reg/uniform.tif")
+        assert result["mean_regularity"] > 0.5
+
+
+# ---------------------------------------------------------------------------
+# Test: crop_mark_detector
+# ---------------------------------------------------------------------------
+
+class TestCropMarkDetector:
+    def test_returns_dict_with_required_keys(self, gray_tif):
+        result = arch.crop_mark_detector(gray_tif, "cropmark/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "positive_anomaly_count", "negative_anomaly_count", "mean_zscore"):
+            assert key in result
+
+    def test_output_file_exists(self, gray_tif):
+        result = arch.crop_mark_detector(gray_tif, "cropmark/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_anomaly_counts_are_non_negative(self, gray_tif):
+        result = arch.crop_mark_detector(gray_tif, "cropmark/counts.tif")
+        assert result["positive_anomaly_count"] >= 0
+        assert result["negative_anomaly_count"] >= 0
+
+    def test_output_is_float32(self, gray_tif):
+        from osgeo import gdal
+        result = arch.crop_mark_detector(gray_tif, "cropmark/dtype.tif")
+        ds = gdal.Open(result["image_path"])
+        dt = ds.GetRasterBand(1).DataType
+        ds = None
+        assert dt == gdal.GDT_Float32
+
+    def test_multiband_input(self, tmp_dir):
+        data = _synthetic_multiband((32, 32), n_bands=4)
+        p = tmp_dir / "cropmark_multi.tif"
+        _write_multiband_geotiff(data, str(p))
+        result = arch.crop_mark_detector(str(p), "cropmark/multi.tif")
+        assert "mean_zscore" in result
+
+
+# ---------------------------------------------------------------------------
+# Test: shape_statistics
+# ---------------------------------------------------------------------------
+
+class TestShapeStatistics:
+    def test_returns_dict_with_required_keys(self, gray_tif):
+        result = arch.shape_statistics(gray_tif, "shapestats/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "shape_count", "dominant_orientations",
+                    "mean_compactness", "mean_aspect_ratio", "orientation_histogram"):
+            assert key in result
+
+    def test_output_file_exists(self, gray_tif):
+        result = arch.shape_statistics(gray_tif, "shapestats/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_orientation_histogram_has_18_bins(self, gray_tif):
+        result = arch.shape_statistics(gray_tif, "shapestats/bins.tif")
+        assert len(result["orientation_histogram"]) == 18
+
+    def test_circle_has_high_compactness(self, tmp_dir):
+        import cv2
+        img = np.zeros((128, 128), dtype=np.uint8)
+        cv2.circle(img, (64, 64), 40, 255, -1)
+        p = tmp_dir / "shape_circle.tif"
+        _write_geotiff(img, str(p))
+        result = arch.shape_statistics(str(p), "shapestats/circle.tif", min_area=100)
+        assert result["shape_count"] > 0
+        assert result["mean_compactness"] > 0.5
+
+    def test_min_area_filter(self, gray_tif):
+        result_low = arch.shape_statistics(gray_tif, "shapestats/low.tif", min_area=1)
+        result_high = arch.shape_statistics(gray_tif, "shapestats/high.tif", min_area=5000)
+        assert result_low["shape_count"] >= result_high["shape_count"]
+
+
+# ---------------------------------------------------------------------------
+# Test: systematic_grid_analysis
+# ---------------------------------------------------------------------------
+
+class TestSystematicGridAnalysis:
+    def test_returns_dict_with_required_keys(self, gray_tif):
+        result = arch.systematic_grid_analysis(gray_tif, "grid/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "top_tiles", "max_score", "mean_score"):
+            assert key in result
+
+    def test_output_file_exists(self, gray_tif):
+        result = arch.systematic_grid_analysis(gray_tif, "grid/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_top_tiles_have_required_keys(self, gray_tif):
+        result = arch.systematic_grid_analysis(gray_tif, "grid/keys.tif")
+        for tile in result["top_tiles"]:
+            assert "row" in tile and "col" in tile and "score" in tile
+
+    def test_scores_in_valid_range(self, gray_tif):
+        result = arch.systematic_grid_analysis(gray_tif, "grid/range.tif")
+        assert 0.0 <= result["mean_score"] <= 1.0
+        assert 0.0 <= result["max_score"] <= 1.0
+        assert result["max_score"] >= result["mean_score"]
+
+    def test_output_shape_matches_input(self, gray_tif):
+        from osgeo import gdal
+        result = arch.systematic_grid_analysis(gray_tif, "grid/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (128, 128)
