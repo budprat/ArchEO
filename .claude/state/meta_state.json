@@ -1,0 +1,15 @@
+{
+  "reasoning_state": "confident",
+  "cognitive_load": "low",
+  "confidence_level": 0.35,
+  "uncertainty_areas": [
+    "high-risk operation in progress"
+  ],
+  "current_strategy": "atom_of_thought",
+  "strategy_effectiveness": 0.7,
+  "consecutive_failures": 0,
+  "last_success_tool": "Bash",
+  "session_start": "2026-03-12T10:52:21.950204",
+  "last_updated": "2026-03-24T19:26:07.243151",
+  "pre_action_confidence": 0.5
+}

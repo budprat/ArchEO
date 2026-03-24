@@ -1,0 +1,26 @@
+{
+  "a0fb7c79": {
+    "id": "a0fb7c79",
+    "category": "task",
+    "question": "What is the current task being worked on?",
+    "expected_answer": "check how the Earth-Agent works as per this repo",
+    "priority": "critical",
+    "created_at": "2026-03-12T11:13:32.787968"
+  },
+  "ca076d3a": {
+    "id": "ca076d3a",
+    "category": "files",
+    "question": "What files have been modified in this session?",
+    "expected_answer": "/Users/macbookpro/Earth-Agent/demo_e2e.py, /Users/macbookpro/Earth-Agent/.env, /Users/macbookpro/.claude/plans/frolicking-brewing-petal.md",
+    "priority": "high",
+    "created_at": "2026-03-12T11:13:32.787968"
+  },
+  "182c41f8": {
+    "id": "182c41f8",
+    "category": "errors",
+    "question": "What errors were encountered?",
+    "expected_answer": "GUARDRAIL [workflow]: Pull latest changes before making edits. Resolve conflicts before committing.",
+    "priority": "medium",
+    "created_at": "2026-03-12T11:13:32.787968"
+  }
+}

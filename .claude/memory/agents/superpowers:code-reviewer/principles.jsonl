@@ -1,0 +1,2 @@
+{"id": "agent_b268065f06fd", "statement": "Using 'mkdir <PATH>' commands leads to successful outcomes in workflow", "domain": "workflow", "confidence": 0.868928, "source_agent": "superpowers:code-reviewer", "promoted_at": "2026-03-24T19:02:14.393410"}
+{"id": "agent_0d728abd6269", "statement": "Using 'rm <PATH>' commands leads to successful outcomes in workflow", "domain": "workflow", "confidence": 0.868928, "source_agent": "superpowers:code-reviewer", "promoted_at": "2026-03-24T19:02:25.950370"}

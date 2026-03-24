@@ -1,0 +1,26 @@
+{
+  "id": "d45022643871",
+  "session_id": "ea53565e-56c3-47e2-9a19-b6e996122af6",
+  "timestamp": "2026-03-12T20:24:45.235199",
+  "goal": "Session tasks",
+  "tools_used": [],
+  "actions_taken": [],
+  "files_involved": [],
+  "outcome": "success",
+  "learnings": [
+    "Improvement needed: Calibration shows overconfidence - express more uncertainty"
+  ],
+  "duration_seconds": null,
+  "error_messages": [],
+  "context": {
+    "strategy": "atom_of_thought",
+    "quality_score": 1.0,
+    "feedback": {
+      "positive": 0,
+      "negative": 0,
+      "corrections": 0,
+      "test_passes": 0,
+      "test_failures": 0
+    }
+  }
+}

@@ -1,0 +1,140 @@
+<h2>ArchEO-Agent — UI Layout</h2>
+<p class="subtitle">Chat-first research demo with file upload and real-time agent reasoning</p>
+
+<div class="section">
+  <h3>Page Layout</h3>
+  <div class="mockup">
+    <div class="mockup-header">ArchEO-Agent — Archaeological Image Analysis</div>
+    <div class="mockup-body" style="display: flex; gap: 0; min-height: 500px; padding: 0;">
+
+      <!-- Left Panel: Chat -->
+      <div style="flex: 1; border-right: 1px solid #333; display: flex; flex-direction: column; padding: 0;">
+        <div style="padding: 12px 16px; border-bottom: 1px solid #333; font-size: 13px; color: #888;">
+          💬 Agent Chat
+        </div>
+
+        <!-- Chat Messages -->
+        <div style="flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;">
+
+          <!-- User message -->
+          <div style="align-self: flex-end; background: #2563eb; color: white; padding: 10px 14px; border-radius: 12px 12px 4px 12px; max-width: 80%; font-size: 13px;">
+            Analyze this satellite image for potential geoglyphs. Look for linear features and geometric patterns.
+          </div>
+
+          <!-- Agent thinking -->
+          <div style="align-self: flex-start; background: #1e1e2e; border: 1px solid #333; padding: 10px 14px; border-radius: 4px 12px 12px 12px; max-width: 85%; font-size: 13px;">
+            <div style="color: #f59e0b; font-size: 11px; margin-bottom: 6px;">🤔 Thinking...</div>
+            <div style="color: #ccc;">I'll analyze the uploaded image for archaeological features. Let me first classify the terrain type, then run edge detection to identify linear patterns...</div>
+          </div>
+
+          <!-- Tool call -->
+          <div style="align-self: flex-start; background: #0d1117; border: 1px solid #30363d; padding: 10px 14px; border-radius: 8px; max-width: 85%; font-size: 12px;">
+            <div style="color: #58a6ff; font-size: 11px; margin-bottom: 4px;">🔧 Tool Call: edge_detection</div>
+            <code style="color: #7ee787; font-size: 11px;">{"image_path": "upload_001.tif", "method": "canny", "threshold": 50}</code>
+          </div>
+
+          <!-- Tool result -->
+          <div style="align-self: flex-start; background: #0d1117; border: 1px solid #238636; padding: 10px 14px; border-radius: 8px; max-width: 85%; font-size: 12px;">
+            <div style="color: #3fb950; font-size: 11px; margin-bottom: 4px;">✅ Result</div>
+            <div style="color: #ccc; font-size: 11px;">Edge map saved. Detected 14 linear features &gt;100px length.</div>
+          </div>
+
+          <!-- Agent response with image -->
+          <div style="align-self: flex-start; background: #1e1e2e; border: 1px solid #333; padding: 10px 14px; border-radius: 4px 12px 12px 12px; max-width: 85%; font-size: 13px;">
+            <div style="color: #ccc; margin-bottom: 8px;">I found <strong>14 linear features</strong> that could indicate geoglyphs. The edge detection reveals geometric patterns in the southeast quadrant consistent with Nazca-style ground markings.</div>
+            <div style="background: #111; border-radius: 6px; padding: 8px; text-align: center; color: #666; font-size: 11px; border: 1px solid #333;">
+              📊 [Edge Detection Result Image]
+            </div>
+          </div>
+        </div>
+
+        <!-- Input area -->
+        <div style="padding: 12px 16px; border-top: 1px solid #333; display: flex; gap: 8px; align-items: center;">
+          <div style="background: #1e1e2e; border: 1px solid #333; border-radius: 8px; flex: 1; padding: 10px 14px; color: #666; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+            <span>Ask about the image...</span>
+          </div>
+          <div style="background: #2563eb; color: white; padding: 8px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;">Send</div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Image + Info -->
+      <div style="width: 45%; display: flex; flex-direction: column;">
+
+        <!-- Upload / Image View -->
+        <div style="flex: 1; display: flex; flex-direction: column;">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #333; font-size: 13px; color: #888; display: flex; justify-content: space-between; align-items: center;">
+            <span>🖼️ Image Viewer</span>
+            <span style="font-size: 11px; background: #1e1e2e; padding: 4px 8px; border-radius: 4px;">upload_001.tif — 4096×4096 — GeoTIFF</span>
+          </div>
+
+          <div style="flex: 1; background: #0a0a0f; display: flex; align-items: center; justify-content: center; position: relative;">
+            <!-- Placeholder for image -->
+            <div style="width: 80%; height: 70%; background: linear-gradient(135deg, #1a2a1a, #2a1a1a, #1a1a2a); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #444; font-size: 14px; border: 1px solid #222;">
+              🛰️ Satellite Image Preview
+            </div>
+
+            <!-- Zoom controls -->
+            <div style="position: absolute; bottom: 12px; right: 12px; display: flex; gap: 4px;">
+              <div style="background: #1e1e2e; border: 1px solid #333; padding: 4px 8px; border-radius: 4px; color: #ccc; font-size: 12px;">−</div>
+              <div style="background: #1e1e2e; border: 1px solid #333; padding: 4px 8px; border-radius: 4px; color: #ccc; font-size: 12px;">100%</div>
+              <div style="background: #1e1e2e; border: 1px solid #333; padding: 4px 8px; border-radius: 4px; color: #ccc; font-size: 12px;">+</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- File metadata -->
+        <div style="border-top: 1px solid #333; padding: 12px 16px;">
+          <div style="font-size: 11px; color: #888; margin-bottom: 8px;">File Metadata</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 11px;">
+            <div style="color: #666;">Format:</div><div style="color: #ccc;">GeoTIFF</div>
+            <div style="color: #666;">Size:</div><div style="color: #ccc;">4096 × 4096 px</div>
+            <div style="color: #666;">Bands:</div><div style="color: #ccc;">4 (R, G, B, NIR)</div>
+            <div style="color: #666;">CRS:</div><div style="color: #ccc;">EPSG:4326</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>Key UI Components</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+    <div style="background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px;">
+      <h4 style="color: #58a6ff; margin: 0 0 8px 0; font-size: 14px;">💬 Chat Panel (Left ~55%)</h4>
+      <ul style="margin: 0; padding-left: 16px; font-size: 12px; color: #aaa; line-height: 1.8;">
+        <li>Streaming agent reasoning</li>
+        <li>Tool calls shown as collapsible cards</li>
+        <li>Result images rendered inline</li>
+        <li>File upload via drag-drop or button</li>
+      </ul>
+    </div>
+    <div style="background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px;">
+      <h4 style="color: #58a6ff; margin: 0 0 8px 0; font-size: 14px;">🖼️ Image Panel (Right ~45%)</h4>
+      <ul style="margin: 0; padding-left: 16px; font-size: 12px; color: #aaa; line-height: 1.8;">
+        <li>Pan/zoom image viewer</li>
+        <li>Toggle between original and result layers</li>
+        <li>File metadata display</li>
+        <li>Drag-drop upload zone when empty</li>
+      </ul>
+    </div>
+    <div style="background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px;">
+      <h4 style="color: #58a6ff; margin: 0 0 8px 0; font-size: 14px;">🔧 Agent Reasoning</h4>
+      <ul style="margin: 0; padding-left: 16px; font-size: 12px; color: #aaa; line-height: 1.8;">
+        <li>Thinking steps (collapsible)</li>
+        <li>Tool calls with params</li>
+        <li>Results with expandable detail</li>
+        <li>SSE streaming in real-time</li>
+      </ul>
+    </div>
+    <div style="background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 16px;">
+      <h4 style="color: #58a6ff; margin: 0 0 8px 0; font-size: 14px;">📁 Upload System</h4>
+      <ul style="margin: 0; padding-left: 16px; font-size: 12px; color: #aaa; line-height: 1.8;">
+        <li>GeoTIFF, PNG, JPEG + GDAL formats</li>
+        <li>Drag-drop anywhere on the page</li>
+        <li>Auto-detect format & extract metadata</li>
+        <li>Thumbnail generation for GeoTIFF</li>
+      </ul>
+    </div>
+  </div>
+</div>
