@@ -53,3 +53,13 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Uploads
+uploads/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+.superpowers/
+!frontend/lib/
