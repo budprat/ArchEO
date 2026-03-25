@@ -23,8 +23,47 @@ def safe_read_band(ds, band_idx: int, band_name: str = "") -> np.ndarray:
     return band.ReadAsArray()
 
 
+def resolve_band_index(ds, band_idx: int, band_name: str) -> int:
+    """Auto-resolve band index using GeoTIFF band descriptions.
+
+    If band_idx exceeds n_bands, tries to find the band by matching
+    its description (e.g., 'swir16', 'nir', 'red') to band descriptions
+    stored in the GeoTIFF metadata.
+
+    Returns corrected band index (1-based).
+    """
+    n_bands = ds.RasterCount
+    if 1 <= band_idx <= n_bands:
+        return band_idx
+
+    # Band index out of range — try auto-mapping via band descriptions
+    # Common name mappings: tool param name → possible band description values
+    NAME_MAP = {
+        "red": ["red", "b04", "b4"],
+        "blue": ["blue", "b02", "b2"],
+        "green": ["green", "b03", "b3"],
+        "nir": ["nir", "b08", "b8"],
+        "nir08": ["nir08", "nir_narrow", "b8a"],
+        "swir1": ["swir16", "swir1", "b11"],
+        "swir2": ["swir22", "swir2", "b12"],
+    }
+
+    search_names = NAME_MAP.get(band_name.lower(), [band_name.lower()])
+
+    for i in range(1, n_bands + 1):
+        desc = (ds.GetRasterBand(i).GetDescription() or "").lower().strip()
+        if desc in search_names:
+            return i
+
+    # No match found — return original (will fail with clear error)
+    return band_idx
+
+
 def validate_band_count(ds, required_bands: dict, tool_name: str = "") -> str | None:
     """Check that all required bands exist in the dataset.
+
+    Auto-resolves band indices using GeoTIFF band descriptions before
+    rejecting. Updates required_bands dict in-place with resolved indices.
 
     Args:
         ds: GDAL dataset
@@ -35,13 +74,30 @@ def validate_band_count(ds, required_bands: dict, tool_name: str = "") -> str | 
         None if OK, or an error message string if bands are missing.
     """
     n_bands = ds.RasterCount
+
+    # Try auto-resolving band indices from descriptions
+    for name in list(required_bands.keys()):
+        idx = required_bands[name]
+        if idx > n_bands:
+            resolved = resolve_band_index(ds, idx, name)
+            required_bands[name] = resolved
+
     missing = {name: idx for name, idx in required_bands.items() if idx > n_bands}
     if not missing:
         return None
+
+    # List available bands for helpful error
+    available = []
+    for i in range(1, n_bands + 1):
+        desc = ds.GetRasterBand(i).GetDescription() or ""
+        available.append(f"band{i}={desc}" if desc else f"band{i}")
+
     missing_str = ", ".join(f"{name}=band {idx}" for name, idx in missing.items())
+    avail_str = ", ".join(available)
     tool_label = f" ({tool_name})" if tool_name else ""
     return (
         f"Image has {n_bands} band(s) but{tool_label} requires: {missing_str}. "
+        f"Available bands: [{avail_str}]. "
         f"This tool needs multi-band satellite data (e.g. Sentinel-2 GeoTIFF). "
         f"For RGB images (PNG/JPG), try tools that work with 3 bands: "
         f"iron_oxide_index, brightness_index, redness_index, edge_detection_canny, "
