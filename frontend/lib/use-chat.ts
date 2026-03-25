@@ -288,6 +288,26 @@ export function useChat(apiKey?: string) {
     }
   }, []);
 
+  const setFileFromDownload = useCallback(
+    (
+      fileId: string,
+      metadata: Record<string, unknown>,
+      thumbnailUrl: string,
+    ) => {
+      const uploadedFile: UploadedFile = {
+        id: fileId,
+        name: (metadata?.original_name as string) ?? `sentinel2_${fileId}.tif`,
+        format: (metadata?.format as string) ?? "GTiff",
+        dimensions: (metadata?.dimensions as [number, number]) ?? [0, 0],
+        bands: (metadata?.bands as number) ?? 0,
+        crs: (metadata?.crs as string | null) ?? null,
+        thumbnailUrl,
+      };
+      dispatch({ type: "SET_UPLOADED_FILE", file: uploadedFile });
+    },
+    [],
+  );
+
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
@@ -306,6 +326,7 @@ export function useChat(apiKey?: string) {
     activeImageLayer: state.activeImageLayer,
     sendMessage,
     uploadFile,
+    setFileFromDownload,
     stopStreaming,
     setActiveLayer,
   };

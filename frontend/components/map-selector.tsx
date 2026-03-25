@@ -1,0 +1,156 @@
+"use client";
+import { useState } from "react";
+
+interface MapSelectorProps {
+  onDownloadComplete: (
+    fileId: string,
+    metadata: Record<string, unknown>,
+    thumbnailUrl: string,
+  ) => void;
+}
+
+const PRESETS = [
+  { name: "Caral", lat: -10.8933, lon: -77.5203 },
+  { name: "Nazca Lines", lat: -14.735, lon: -75.13 },
+  { name: "Machu Picchu", lat: -13.1631, lon: -72.545 },
+  { name: "Chan Chan", lat: -8.106, lon: -79.0745 },
+  { name: "Cusco", lat: -13.532, lon: -71.9675 },
+];
+
+export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
+  const [lat, setLat] = useState(-10.8933);
+  const [lon, setLon] = useState(-77.5203);
+  const [status, setStatus] = useState<
+    "idle" | "downloading" | "processing" | "done" | "error"
+  >("idle");
+  const [message, setMessage] = useState("");
+
+  const handlePreset = (preset: (typeof PRESETS)[0]) => {
+    setLat(preset.lat);
+    setLon(preset.lon);
+  };
+
+  const handleDownload = async () => {
+    setStatus("downloading");
+    setMessage("Searching for best Sentinel-2 scene...");
+
+    try {
+      const res = await fetch("/api/download-sentinel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon, size: 100 }),
+      });
+      const { job_id } = await res.json();
+
+      // Poll for completion
+      const poll = setInterval(async () => {
+        const statusRes = await fetch(`/api/download-status/${job_id}`);
+        const data = await statusRes.json();
+
+        if (data.status === "done") {
+          clearInterval(poll);
+          if (data.file_id) {
+            setStatus("done");
+            setMessage(
+              `Downloaded! Date: ${data.date?.split("T")[0] || "?"}, Cloud: ${data.cloud_cover?.toFixed(1) || "?"}%`,
+            );
+            onDownloadComplete(data.file_id, data.metadata, data.thumbnail_url);
+          } else if (data.upload_error) {
+            setStatus("error");
+            setMessage(`Upload failed: ${data.upload_error}`);
+          } else {
+            setStatus("processing");
+            setMessage("Processing upload...");
+          }
+        } else if (data.status === "error") {
+          clearInterval(poll);
+          setStatus("error");
+          setMessage(data.error || "Download failed");
+        }
+      }, 2000);
+    } catch (err) {
+      setStatus("error");
+      setMessage(err instanceof Error ? err.message : "Download failed");
+    }
+  };
+
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      <h3 className="text-sm font-medium">Download Sentinel-2 Data</h3>
+
+      {/* Preset locations */}
+      <div className="flex flex-wrap gap-1.5">
+        {PRESETS.map((p) => (
+          <button
+            key={p.name}
+            onClick={() => handlePreset(p)}
+            className="rounded-md border px-2 py-0.5 text-xs hover:bg-muted transition-colors"
+          >
+            {p.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Coordinate inputs */}
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground">Latitude</label>
+          <input
+            type="number"
+            step="0.001"
+            value={lat}
+            onChange={(e) => setLat(parseFloat(e.target.value))}
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+          />
+        </div>
+        <div className="flex-1">
+          <label className="text-xs text-muted-foreground">Longitude</label>
+          <input
+            type="number"
+            step="0.001"
+            value={lon}
+            onChange={(e) => setLon(parseFloat(e.target.value))}
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+          />
+        </div>
+      </div>
+
+      {/* Download button */}
+      <button
+        onClick={handleDownload}
+        disabled={status === "downloading" || status === "processing"}
+        className="w-full rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+      >
+        {status === "downloading"
+          ? "Downloading..."
+          : status === "processing"
+            ? "Processing..."
+            : "Download Sentinel-2 (100x100, 10m)"}
+      </button>
+
+      {/* Status message */}
+      {message && (
+        <p
+          className={`text-xs ${
+            status === "error"
+              ? "text-destructive"
+              : status === "done"
+                ? "text-green-600"
+                : "text-muted-foreground"
+          }`}
+        >
+          {message}
+        </p>
+      )}
+
+      {/* Mini map preview */}
+      <div className="rounded-md border overflow-hidden h-32">
+        <img
+          src={`https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=12&size=400x150&maptype=mapnik&markers=${lat},${lon},red-pushpin`}
+          alt="Location preview"
+          className="w-full h-full object-cover"
+        />
+      </div>
+    </div>
+  );
+}

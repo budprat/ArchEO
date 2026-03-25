@@ -11,8 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
 from agent_service import get_mcp_status, shutdown_mcp, startup_mcp, stream_agent_response
 from config import ALLOWED_EXTENSIONS, MAX_UPLOAD_SIZE, UPLOADS_DIR
+from download_service import start_download, get_download_status
 from file_service import process_upload
 
 logger = logging.getLogger(__name__)
@@ -192,3 +196,40 @@ async def get_result(file_id: str, result_name: str):
     }
     media_type = media_types.get(suffix, "application/octet-stream")
     return FileResponse(str(result_path), media_type=media_type)
+
+
+# ---------------------------------------------------------------------------
+# Sentinel-2 Download Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/download-sentinel")
+async def download_sentinel(request: Request):
+    """Start an async Sentinel-2 download job for given coordinates."""
+    body = await request.json()
+    lat = body.get("lat")
+    lon = body.get("lon")
+    size = body.get("size", 100)
+    if lat is None or lon is None:
+        return JSONResponse({"error": "lat and lon required"}, status_code=400)
+    job_id = await start_download(lat, lon, size)
+    return JSONResponse({"job_id": job_id, "status": "downloading"})
+
+
+@app.get("/api/download-status/{job_id}")
+async def download_status(job_id: str):
+    """Check status of a download job; auto-uploads on completion."""
+    status = get_download_status(job_id)
+    if status["status"] == "done" and "file_id" not in status:
+        # Auto-upload the downloaded file into the uploads pipeline
+        try:
+            result = process_upload(
+                status["file_path"],
+                f"sentinel2_{job_id}.tif",
+                str(UPLOADS_DIR),
+            )
+            status["file_id"] = result["file_id"]
+            status["metadata"] = result["metadata"]
+            status["thumbnail_url"] = result["thumbnail_url"]
+        except Exception as e:
+            status["upload_error"] = str(e)
+    return JSONResponse(status)

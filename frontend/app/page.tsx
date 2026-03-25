@@ -8,6 +8,7 @@ import { ImageViewer } from "@/components/image-viewer";
 import { ImageLayerToggle } from "@/components/image-layer-toggle";
 import { FileMetadata } from "@/components/file-metadata";
 import { UploadZone } from "@/components/upload-zone";
+import { MapSelector } from "@/components/map-selector";
 
 const API_KEY_STORAGE_KEY = "archeo-agent-api-key";
 
@@ -37,6 +38,7 @@ export default function Home() {
     activeImageLayer,
     sendMessage,
     uploadFile,
+    setFileFromDownload,
     stopStreaming,
     setActiveLayer,
   } = useChat(apiKey);
@@ -74,6 +76,7 @@ export default function Home() {
 
         {/* Right panel: Image + metadata */}
         <div className="flex w-[45%] flex-col gap-4 overflow-y-auto p-4">
+          <MapSelector onDownloadComplete={setFileFromDownload} />
           {!uploadedFile ? (
             <UploadZone onUpload={uploadFile} hasFile={false} />
           ) : (
