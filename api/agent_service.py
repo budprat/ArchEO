@@ -118,6 +118,16 @@ async def startup_mcp() -> None:
         "get_percentile_value_from_image", "calculate_area", "subtract",
         "calc_single_image_hotspot_percentage",
         "count_pixels_satisfying_conditions", "apply_cloud_mask",
+        # Index — additional spectral indices
+        "calculate_nbr", "calculate_fvc",
+        # Inversion — thermal analysis
+        "ATI",
+        # Statistics — robust stats
+        "calc_single_image_median",
+        # Analysis — transect analysis
+        "detect_change_points",
+        # Perception — feature measurement
+        "calculate_bbox_area",
     }
     _tools = [t for t in _tools if t.name in PRIORITY_TOOLS]
     logger.info(f"Filtered to {len(_tools)} priority tools (from full set)")
