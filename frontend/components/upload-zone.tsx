@@ -58,25 +58,25 @@ export function UploadZone({ onUpload, hasFile }: UploadZoneProps) {
   if (hasFile) return null;
 
   return (
-    <div className="flex flex-col items-center gap-2 p-4">
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-6">
       <div
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onClick={() => inputRef.current?.click()}
         className={cn(
-          "flex w-full cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-10 text-center transition-colors",
+          "flex w-full min-h-[300px] cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed p-16 text-center transition-colors",
           isDragging
             ? "border-primary bg-primary/5"
             : "border-border hover:border-primary/50 hover:bg-muted/50",
         )}
       >
-        <UploadCloud className="size-10 text-muted-foreground" />
+        <UploadCloud className="size-14 text-muted-foreground" />
         <div>
-          <p className="font-medium text-sm">
+          <p className="font-medium text-base">
             Drop a satellite / aerial image here
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-2">
             GeoTIFF, PNG, JPEG — max 50 MB
           </p>
         </div>

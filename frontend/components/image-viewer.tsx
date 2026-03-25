@@ -11,7 +11,7 @@ interface ImageViewerProps {
 
 export function ImageViewer({ src, alt }: ImageViewerProps) {
   return (
-    <div className="relative overflow-hidden rounded-xl border bg-muted">
+    <div className="relative overflow-hidden rounded-xl border bg-muted h-full min-h-[400px]">
       <TransformWrapper
         initialScale={1}
         minScale={0.5}
@@ -50,7 +50,11 @@ export function ImageViewer({ src, alt }: ImageViewerProps) {
               wrapperStyle={{ width: "100%", height: "100%" }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt={alt} className="max-w-full object-contain" />
+              <img
+                src={src}
+                alt={alt}
+                className="max-w-full max-h-[60vh] object-contain"
+              />
             </TransformComponent>
           </>
         )}

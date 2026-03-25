@@ -28,6 +28,10 @@ def _resolve_input(image_path: str) -> str:
     under_temp_name = TEMP_DIR / p.name
     if under_temp_name.exists():
         return str(under_temp_name)
+    # Search subdirectories of TEMP_DIR (tools may create per-analysis folders)
+    for match in TEMP_DIR.rglob(p.name):
+        if match.is_file():
+            return str(match)
     # Return original — let the tool raise its own error
     return image_path
 
@@ -1756,6 +1760,828 @@ def systematic_grid_analysis(
         "top_tiles": top_tiles,
         "max_score": round(float(aps_grid.max()), 4),
         "mean_score": round(float(aps_grid.mean()), 4),
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Bare Soil Index (BSI) from a multi-band raster image.
+BSI highlights bare soil areas by exploiting the contrast between SWIR+Red and
+NIR+Blue reflectance. High BSI values (> 0) indicate bare soil, which is crucial
+for archaeological prospection — exposed soil often reveals buried structures
+through color and texture differences.
+
+Parameters:
+- image_path (str): Path to the input multi-band raster (any GDAL-supported format).
+- red_band (int, optional): 1-based index of the Red band. Default = 4 (Sentinel-2).
+- blue_band (int, optional): 1-based index of the Blue band. Default = 2 (Sentinel-2).
+- nir_band (int, optional): 1-based index of the NIR band. Default = 8 (Sentinel-2).
+- swir1_band (int, optional): 1-based index of the SWIR1 band. Default = 11 (Sentinel-2).
+- output_path (str): Relative file path to save the BSI output (e.g., "results/bsi.tif").
+
+Returns:
+- dict: {
+    "image_path": str,        # Path to the saved BSI GeoTIFF
+    "min": float,             # Minimum BSI value
+    "max": float,             # Maximum BSI value
+    "mean": float,            # Mean BSI value
+    "bsi_positive_pct": float # Percentage of pixels > 0 (indicating bare soil)
+  }
+''')
+def bare_soil_index(
+    image_path: str,
+    output_path: str,
+    red_band: int = 4,
+    blue_band: int = 2,
+    nir_band: int = 8,
+    swir1_band: int = 11,
+) -> dict:
+    """
+    Compute BSI = ((SWIR1 + Red) - (NIR + Blue)) / ((SWIR1 + Red) + (NIR + Blue)).
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the BSI GeoTIFF.
+        red_band (int, default=4): 1-based band index for Red.
+        blue_band (int, default=2): 1-based band index for Blue.
+        nir_band (int, default=8): 1-based band index for NIR.
+        swir1_band (int, default=11): 1-based band index for SWIR1.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved BSI image.
+            min (float): Minimum BSI value.
+            max (float): Maximum BSI value.
+            mean (float): Mean BSI value.
+            bsi_positive_pct (float): Percentage of pixels with BSI > 0.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
+    blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
+    nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
+    swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
+    ds = None
+
+    numerator = (swir1 + red) - (nir + blue)
+    denominator = (swir1 + red) + (nir + blue) + 1e-10
+
+    bsi = (numerator / denominator).astype(np.float32)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), bsi.shape[1], bsi.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(bsi)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    bsi_positive_pct = round(float((bsi > 0).sum()) / float(bsi.size) * 100, 4)
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(bsi.min()), 6),
+        "max": round(float(bsi.max()), 6),
+        "mean": round(float(bsi.mean()), 6),
+        "bsi_positive_pct": bsi_positive_pct,
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Soil Adjusted Vegetation Index (SAVI) from a multi-band raster image.
+SAVI corrects NDVI for soil brightness influence using an adjustable L factor,
+making it more accurate in arid and semi-arid regions where bare soil dominates.
+This is essential for archaeological sites in desert environments where standard
+NDVI is unreliable due to sparse vegetation and exposed soil.
+
+Parameters:
+- image_path (str): Path to the input multi-band raster (any GDAL-supported format).
+- nir_band (int, optional): 1-based index of the NIR band. Default = 4 (4-band image).
+                            Use 8 for Sentinel-2.
+- red_band (int, optional): 1-based index of the Red band. Default = 3 (4-band image).
+                            Use 4 for Sentinel-2.
+- L (float, optional): Soil brightness correction factor. Default = 0.5.
+                        Use 1.0 for hyper-arid regions, 0.25 for dense vegetation.
+- output_path (str): Relative file path to save the SAVI output (e.g., "results/savi.tif").
+
+Returns:
+- dict: {
+    "image_path": str, # Path to the saved SAVI GeoTIFF
+    "min": float,      # Minimum SAVI value
+    "max": float,      # Maximum SAVI value
+    "mean": float      # Mean SAVI value
+  }
+''')
+def soil_adjusted_vegetation_index(
+    image_path: str,
+    output_path: str,
+    nir_band: int = 4,
+    red_band: int = 3,
+    L: float = 0.5,
+) -> dict:
+    """
+    Compute SAVI = ((NIR - Red) / (NIR + Red + L)) * (1 + L).
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the SAVI GeoTIFF.
+        nir_band (int, default=4): 1-based band index for NIR.
+        red_band (int, default=3): 1-based band index for Red.
+        L (float, default=0.5): Soil brightness correction factor.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved SAVI image.
+            min (float): Minimum SAVI value.
+            max (float): Maximum SAVI value.
+            mean (float): Mean SAVI value.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
+    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
+    ds = None
+
+    savi = ((nir - red) / (nir + red + L + 1e-10)) * (1.0 + L)
+    savi = savi.astype(np.float32)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), savi.shape[1], savi.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(savi)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(savi.min()), 6),
+        "max": round(float(savi.max()), 6),
+        "mean": round(float(savi.mean()), 6),
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Normalized Difference Moisture Index (NDMI) from a multi-band raster.
+NDMI = (NIR - SWIR1) / (NIR + SWIR1) measures vegetation water content and soil
+moisture. In archaeological contexts, buried structures alter drainage patterns,
+creating moisture anomalies detectable by NDMI — ditches retain moisture (high NDMI)
+while walls shed it (low NDMI).
+
+Parameters:
+- image_path (str): Path to the input multi-band raster (any GDAL-supported format).
+- nir_band (int, optional): 1-based index of the NIR band. Default = 8 (Sentinel-2).
+- swir1_band (int, optional): 1-based index of the SWIR1 band. Default = 11 (Sentinel-2).
+- output_path (str): Relative file path to save the NDMI output (e.g., "results/ndmi.tif").
+
+Returns:
+- dict: {
+    "image_path": str,  # Path to the saved NDMI GeoTIFF
+    "min": float,       # Minimum NDMI value
+    "max": float,       # Maximum NDMI value
+    "mean": float,      # Mean NDMI value
+    "dry_pct": float    # Percentage of pixels with NDMI < -0.1 (dry areas)
+  }
+''')
+def moisture_index(
+    image_path: str,
+    output_path: str,
+    nir_band: int = 8,
+    swir1_band: int = 11,
+) -> dict:
+    """
+    Compute NDMI = (NIR - SWIR1) / (NIR + SWIR1).
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the NDMI GeoTIFF.
+        nir_band (int, default=8): 1-based band index for NIR.
+        swir1_band (int, default=11): 1-based band index for SWIR1.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved NDMI image.
+            min (float): Minimum NDMI value.
+            max (float): Maximum NDMI value.
+            mean (float): Mean NDMI value.
+            dry_pct (float): Percentage of pixels with NDMI < -0.1.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
+    swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
+    ds = None
+
+    ndmi = ((nir - swir1) / (nir + swir1 + 1e-10)).astype(np.float32)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), ndmi.shape[1], ndmi.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(ndmi)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    dry_pct = round(float((ndmi < -0.1).sum()) / float(ndmi.size) * 100, 4)
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(ndmi.min()), 6),
+        "max": round(float(ndmi.max()), 6),
+        "mean": round(float(ndmi.mean()), 6),
+        "dry_pct": dry_pct,
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Iron Oxide Index (IOI) from an image using Red and Blue bands.
+IOI = (Red - Blue) / (Red + Blue) highlights iron oxide-rich soils and minerals.
+Iron oxide concentrations are common indicators of ancient human activity —
+pottery fragments, burnt structures, and laterite building materials all elevate
+iron oxide signatures. Works with ANY image that has at least Red and Blue channels
+(including 3-band RGB).
+
+Parameters:
+- image_path (str): Path to the input image (any GDAL-supported format).
+- red_band (int, optional): 1-based index of the Red band. Default = 4 (Sentinel-2).
+                            Use 1 for standard RGB images.
+- blue_band (int, optional): 1-based index of the Blue band. Default = 2 (Sentinel-2).
+                             Use 3 for standard RGB images.
+- output_path (str): Relative file path to save the IOI output (e.g., "results/ioi.tif").
+
+Returns:
+- dict: {
+    "image_path": str,       # Path to the saved IOI GeoTIFF
+    "min": float,            # Minimum IOI value
+    "max": float,            # Maximum IOI value
+    "mean": float,           # Mean IOI value
+    "high_iron_pct": float   # Percentage of pixels with IOI > 0.2
+  }
+''')
+def iron_oxide_index(
+    image_path: str,
+    output_path: str,
+    red_band: int = 4,
+    blue_band: int = 2,
+) -> dict:
+    """
+    Compute IOI = (Red - Blue) / (Red + Blue).
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the IOI GeoTIFF.
+        red_band (int, default=4): 1-based band index for Red.
+        blue_band (int, default=2): 1-based band index for Blue.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved IOI image.
+            min (float): Minimum IOI value.
+            max (float): Maximum IOI value.
+            mean (float): Mean IOI value.
+            high_iron_pct (float): Percentage of pixels with IOI > 0.2.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
+    blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
+    ds = None
+
+    ioi = ((red - blue) / (red + blue + 1e-10)).astype(np.float32)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), ioi.shape[1], ioi.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(ioi)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    high_iron_pct = round(float((ioi > 0.2).sum()) / float(ioi.size) * 100, 4)
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(ioi.min()), 6),
+        "max": round(float(ioi.max()), 6),
+        "mean": round(float(ioi.mean()), 6),
+        "high_iron_pct": high_iron_pct,
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Clay Mineral Index (CMI) from a multi-band raster using SWIR bands.
+CMI = (SWIR1 - SWIR2) / (SWIR1 + SWIR2) detects clay mineral concentrations in
+soil. Clay-rich soils are archaeological indicators — ancient adobe/mudbrick
+structures, pottery production areas, and waterlogged features all show elevated
+clay signatures. Requires SWIR bands (typically Sentinel-2 bands 11 and 12).
+
+Parameters:
+- image_path (str): Path to the input multi-band raster (any GDAL-supported format).
+- swir1_band (int, optional): 1-based index of the SWIR1 band. Default = 11 (Sentinel-2).
+- swir2_band (int, optional): 1-based index of the SWIR2 band. Default = 12 (Sentinel-2).
+- output_path (str): Relative file path to save the CMI output (e.g., "results/cmi.tif").
+
+Returns:
+- dict: {
+    "image_path": str,     # Path to the saved CMI GeoTIFF
+    "min": float,          # Minimum CMI value
+    "max": float,          # Maximum CMI value
+    "mean": float,         # Mean CMI value
+    "high_clay_pct": float # Percentage of pixels with CMI > 0.1
+  }
+''')
+def clay_mineral_index(
+    image_path: str,
+    output_path: str,
+    swir1_band: int = 11,
+    swir2_band: int = 12,
+) -> dict:
+    """
+    Compute CMI = (SWIR1 - SWIR2) / (SWIR1 + SWIR2).
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the CMI GeoTIFF.
+        swir1_band (int, default=11): 1-based band index for SWIR1.
+        swir2_band (int, default=12): 1-based band index for SWIR2.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved CMI image.
+            min (float): Minimum CMI value.
+            max (float): Maximum CMI value.
+            mean (float): Mean CMI value.
+            high_clay_pct (float): Percentage of pixels with CMI > 0.1.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
+    swir2 = ds.GetRasterBand(swir2_band).ReadAsArray().astype(np.float64)
+    ds = None
+
+    cmi = ((swir1 - swir2) / (swir1 + swir2 + 1e-10)).astype(np.float32)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), cmi.shape[1], cmi.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(cmi)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    high_clay_pct = round(float((cmi > 0.1).sum()) / float(cmi.size) * 100, 4)
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(cmi.min()), 6),
+        "max": round(float(cmi.max()), 6),
+        "mean": round(float(cmi.mean()), 6),
+        "high_clay_pct": high_clay_pct,
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Brightness Index (BI) from a multi-band raster image.
+BI = sqrt((Red^2 + NIR^2) / 2) measures overall surface brightness and albedo.
+For 3-band RGB images, uses BI = sqrt((R^2 + G^2 + B^2) / 3) automatically.
+Brightness variations can indicate disturbed soil, exposed bedrock, or
+archaeological features like cleared plazas and compacted surfaces.
+
+Parameters:
+- image_path (str): Path to the input image (any GDAL-supported format).
+- red_band (int, optional): 1-based index of the Red band. Default = 4 (Sentinel-2).
+- nir_band (int, optional): 1-based index of the NIR band. Default = 8 (Sentinel-2).
+- output_path (str): Relative file path to save the BI output (e.g., "results/bi.tif").
+
+Returns:
+- dict: {
+    "image_path": str, # Path to the saved BI GeoTIFF
+    "min": float,      # Minimum BI value
+    "max": float,      # Maximum BI value
+    "mean": float      # Mean BI value
+  }
+''')
+def brightness_index(
+    image_path: str,
+    output_path: str,
+    red_band: int = 4,
+    nir_band: int = 8,
+) -> dict:
+    """
+    Compute BI = sqrt((Red^2 + NIR^2) / 2) for multi-band, or
+    BI = sqrt((R^2 + G^2 + B^2) / 3) for 3-band RGB images.
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the BI GeoTIFF.
+        red_band (int, default=4): 1-based band index for Red.
+        nir_band (int, default=8): 1-based band index for NIR.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved BI image.
+            min (float): Minimum BI value.
+            max (float): Maximum BI value.
+            mean (float): Mean BI value.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    n_bands = ds.RasterCount
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    if n_bands == 3:
+        # RGB mode: BI = sqrt((R^2 + G^2 + B^2) / 3)
+        r = ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
+        g = ds.GetRasterBand(2).ReadAsArray().astype(np.float64)
+        b = ds.GetRasterBand(3).ReadAsArray().astype(np.float64)
+        ds = None
+        bi = np.sqrt((r ** 2 + g ** 2 + b ** 2) / 3.0).astype(np.float32)
+    else:
+        # Multi-band: BI = sqrt((Red^2 + NIR^2) / 2)
+        _red = min(red_band, n_bands)
+        _nir = min(nir_band, n_bands)
+        red = ds.GetRasterBand(_red).ReadAsArray().astype(np.float64)
+        nir = ds.GetRasterBand(_nir).ReadAsArray().astype(np.float64)
+        ds = None
+        bi = np.sqrt((red ** 2 + nir ** 2) / 2.0).astype(np.float32)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), bi.shape[1], bi.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(bi)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(bi.min()), 6),
+        "max": round(float(bi.max()), 6),
+        "mean": round(float(bi.mean()), 6),
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Redness Index (RI) from a multi-band raster image.
+RI = Red^2 / (Blue * Green^3 + epsilon) emphasizes reddish soil tones that indicate
+iron oxide weathering, burnt earth, and laterite — common indicators of past human
+activity such as hearths, kilns, and ancient settlement layers.
+
+Parameters:
+- image_path (str): Path to the input image (any GDAL-supported format).
+- red_band (int, optional): 1-based index of the Red band. Default = 1 (RGB).
+                            Use 4 for Sentinel-2.
+- green_band (int, optional): 1-based index of the Green band. Default = 2 (RGB).
+                              Use 3 for Sentinel-2.
+- blue_band (int, optional): 1-based index of the Blue band. Default = 3 (RGB).
+                             Use 2 for Sentinel-2.
+- output_path (str): Relative file path to save the RI output (e.g., "results/ri.tif").
+
+Returns:
+- dict: {
+    "image_path": str, # Path to the saved RI GeoTIFF
+    "min": float,      # Minimum RI value
+    "max": float,      # Maximum RI value
+    "mean": float      # Mean RI value
+  }
+''')
+def redness_index(
+    image_path: str,
+    output_path: str,
+    red_band: int = 1,
+    green_band: int = 2,
+    blue_band: int = 3,
+) -> dict:
+    """
+    Compute RI = Red^2 / (Blue * Green^3 + epsilon).
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the RI GeoTIFF.
+        red_band (int, default=1): 1-based band index for Red.
+        green_band (int, default=2): 1-based band index for Green.
+        blue_band (int, default=3): 1-based band index for Blue.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved RI image.
+            min (float): Minimum RI value.
+            max (float): Maximum RI value.
+            mean (float): Mean RI value.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
+    green = ds.GetRasterBand(green_band).ReadAsArray().astype(np.float64)
+    blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
+    ds = None
+
+    ri = (red ** 2 / (blue * green ** 3 + 1e-10)).astype(np.float32)
+    # Clip extreme outliers (99.9th percentile)
+    finite_vals = ri[np.isfinite(ri)]
+    if finite_vals.size > 0:
+        p999 = np.percentile(finite_vals, 99.9)
+        ri = np.clip(ri, 0, p999)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), ri.shape[1], ri.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(ri)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(ri.min()), 6),
+        "max": round(float(ri.max()), 6),
+        "mean": round(float(ri.mean()), 6),
+    }
+
+
+@mcp.tool(description='''
+Description:
+Compute the Archaeological Composite Index (ACI) — a weighted combination of
+multiple spectral indices optimized for detecting archaeological features.
+Full formula (requires SWIR): ACI = w_bsi*BSI + w_ndbi*NDBI + w_ndvi*(1-NDVI) + w_ioi*IOI
+Simplified formula (4-band only): ACI = 0.4*(1-NDVI) + 0.3*IOI + 0.3*BI (normalized)
+All sub-indices are internally normalized to [0, 1] before weighting.
+High ACI values indicate high archaeological potential.
+
+Parameters:
+- image_path (str): Path to the input multi-band raster (any GDAL-supported format).
+- red_band (int, optional): 1-based index of the Red band. Default = 4.
+- blue_band (int, optional): 1-based index of the Blue band. Default = 2.
+- green_band (int, optional): 1-based index of the Green band. Default = 3.
+- nir_band (int, optional): 1-based index of the NIR band. Default = 8.
+- swir1_band (int, optional): 1-based index of the SWIR1 band. Default = 11.
+- output_path (str): Relative file path to save the ACI output (e.g., "results/aci.tif").
+- w_bsi (float, optional): Weight for BSI component. Default = 0.3.
+- w_ndbi (float, optional): Weight for NDBI component. Default = 0.25.
+- w_ndvi (float, optional): Weight for inverse NDVI component. Default = 0.25.
+- w_ioi (float, optional): Weight for IOI component. Default = 0.2.
+
+Returns:
+- dict: {
+    "image_path": str,           # Path to the saved ACI GeoTIFF (0-1 normalized)
+    "min": float,                # Minimum ACI value
+    "max": float,                # Maximum ACI value
+    "mean": float,               # Mean ACI value
+    "high_potential_pct": float  # Percentage of pixels with ACI > 0.5
+  }
+''')
+def archaeological_composite_index(
+    image_path: str,
+    output_path: str,
+    red_band: int = 4,
+    blue_band: int = 2,
+    green_band: int = 3,
+    nir_band: int = 8,
+    swir1_band: int = 11,
+    w_bsi: float = 0.3,
+    w_ndbi: float = 0.25,
+    w_ndvi: float = 0.25,
+    w_ioi: float = 0.2,
+) -> dict:
+    """
+    Compute Archaeological Composite Index (ACI).
+
+    Full formula (when SWIR available):
+        ACI = w_bsi*BSI_norm + w_ndbi*NDBI_norm + w_ndvi*(1-NDVI_norm) + w_ioi*IOI_norm
+    Simplified (4-band only):
+        ACI = 0.4*(1-NDVI_norm) + 0.3*IOI_norm + 0.3*BI_norm
+
+    Parameters:
+        image_path (str): Path to the input raster image.
+        output_path (str): Relative path (within TEMP_DIR) to write the ACI GeoTIFF.
+        red_band (int, default=4): 1-based band index for Red.
+        blue_band (int, default=2): 1-based band index for Blue.
+        green_band (int, default=3): 1-based band index for Green.
+        nir_band (int, default=8): 1-based band index for NIR.
+        swir1_band (int, default=11): 1-based band index for SWIR1.
+        w_bsi (float, default=0.3): Weight for BSI component.
+        w_ndbi (float, default=0.25): Weight for NDBI component.
+        w_ndvi (float, default=0.25): Weight for inverse NDVI component.
+        w_ioi (float, default=0.2): Weight for IOI component.
+
+    Returns:
+        dict with keys:
+            image_path (str): Path to saved ACI image.
+            min (float): Minimum ACI value.
+            max (float): Maximum ACI value.
+            mean (float): Mean ACI value.
+            high_potential_pct (float): Percentage of pixels with ACI > 0.5.
+    """
+    import numpy as np
+    from osgeo import gdal
+
+    ds = gdal.Open(_resolve_input(image_path))
+    if ds is None:
+        raise RuntimeError(f"Failed to open image: {image_path}")
+
+    n_bands = ds.RasterCount
+    geo = ds.GetGeoTransform()
+    proj = ds.GetProjection()
+
+    def _normalize_01(arr):
+        """Normalize array to [0, 1] range."""
+        mn, mx = arr.min(), arr.max()
+        if mx > mn:
+            return (arr - mn) / (mx - mn)
+        return np.zeros_like(arr)
+
+    has_swir = n_bands >= swir1_band
+
+    if has_swir:
+        # Full formula with SWIR bands
+        red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
+        blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
+        nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
+        swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
+        ds = None
+
+        # BSI = ((SWIR1 + Red) - (NIR + Blue)) / ((SWIR1 + Red) + (NIR + Blue))
+        bsi = ((swir1 + red) - (nir + blue)) / ((swir1 + red) + (nir + blue) + 1e-10)
+        bsi_norm = _normalize_01(bsi)
+
+        # NDBI = (SWIR1 - NIR) / (SWIR1 + NIR)
+        ndbi = (swir1 - nir) / (swir1 + nir + 1e-10)
+        ndbi_norm = _normalize_01(ndbi)
+
+        # NDVI = (NIR - Red) / (NIR + Red)
+        ndvi = (nir - red) / (nir + red + 1e-10)
+        ndvi_norm = _normalize_01(ndvi)
+
+        # IOI = (Red - Blue) / (Red + Blue)
+        ioi = (red - blue) / (red + blue + 1e-10)
+        ioi_norm = _normalize_01(ioi)
+
+        aci = (w_bsi * bsi_norm + w_ndbi * ndbi_norm
+               + w_ndvi * (1.0 - ndvi_norm) + w_ioi * ioi_norm)
+    elif n_bands == 3:
+        # RGB-only mode: no NIR available, use proxy indices
+        red = ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
+        green = ds.GetRasterBand(2).ReadAsArray().astype(np.float64)
+        blue = ds.GetRasterBand(3).ReadAsArray().astype(np.float64)
+        ds = None
+
+        # IOI from RGB
+        ioi = (red - blue) / (red + blue + 1e-10)
+        ioi_norm = _normalize_01(ioi)
+
+        # Brightness from RGB
+        bi = np.sqrt((red ** 2 + green ** 2 + blue ** 2) / 3.0)
+        bi_norm = _normalize_01(bi)
+
+        # Redness as proxy for soil
+        ri = red ** 2 / (blue * green ** 3 + 1e-10)
+        ri_norm = _normalize_01(ri)
+
+        aci = 0.4 * ioi_norm + 0.3 * bi_norm + 0.3 * ri_norm
+    else:
+        # 4+ bands: use actual NIR for simplified formula
+        _nir = min(nir_band, n_bands)
+        _red = min(red_band, n_bands) if red_band <= n_bands else 1
+        _blue = min(blue_band, n_bands) if blue_band <= n_bands else 3 if n_bands >= 3 else 1
+
+        red = ds.GetRasterBand(_red).ReadAsArray().astype(np.float64)
+        blue = ds.GetRasterBand(_blue).ReadAsArray().astype(np.float64)
+        nir = ds.GetRasterBand(_nir).ReadAsArray().astype(np.float64)
+        ds = None
+
+        # NDVI
+        ndvi = (nir - red) / (nir + red + 1e-10)
+        ndvi_norm = _normalize_01(ndvi)
+
+        # IOI
+        ioi = (red - blue) / (red + blue + 1e-10)
+        ioi_norm = _normalize_01(ioi)
+
+        # Brightness Index
+        bi = np.sqrt((red ** 2 + nir ** 2) / 2.0)
+        bi_norm = _normalize_01(bi)
+
+        aci = 0.4 * (1.0 - ndvi_norm) + 0.3 * ioi_norm + 0.3 * bi_norm
+
+    # Normalize final ACI to [0, 1]
+    aci_norm = _normalize_01(aci).astype(np.float32)
+
+    out_path = TEMP_DIR / output_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    driver = gdal.GetDriverByName("GTiff")
+    out_ds = driver.Create(str(out_path), aci_norm.shape[1], aci_norm.shape[0], 1, gdal.GDT_Float32)
+    out_ds.GetRasterBand(1).WriteArray(aci_norm)
+    if geo:
+        out_ds.SetGeoTransform(geo)
+    if proj:
+        out_ds.SetProjection(proj)
+    out_ds.FlushCache()
+    out_ds = None
+
+    high_potential_pct = round(float((aci_norm > 0.5).sum()) / float(aci_norm.size) * 100, 4)
+
+    return {
+        "image_path": str(out_path),
+        "min": round(float(aci_norm.min()), 6),
+        "max": round(float(aci_norm.max()), 6),
+        "mean": round(float(aci_norm.mean()), 6),
+        "high_potential_pct": high_potential_pct,
     }
 
 

@@ -24,6 +24,10 @@ def _resolve_input(p: str) -> str:
     t2 = TEMP_DIR / Path(p).name
     if t2.exists():
         return str(t2)
+    # Search subdirectories (tools may create per-analysis folders)
+    for match in TEMP_DIR.rglob(Path(p).name):
+        if match.is_file():
+            return str(match)
     return p
 
 

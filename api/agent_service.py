@@ -87,18 +87,47 @@ async def startup_mcp() -> None:
     # Filter tools to only the most useful ones (reduces prompt token count)
     # Full 118 tools exceed Claude's 200K token limit
     PRIORITY_TOOLS = {
-        # Archaeology — core detection
-        "edge_detection_canny", "linear_feature_detection",
-        "geometric_pattern_analysis", "principal_component_analysis",
-        "adaptive_contrast_enhancement", "band_ratio_calculator",
-        "spectral_anomaly_detection", "texture_analysis_glcm",
-        "systematic_grid_analysis", "regularity_index",
-        "crop_mark_detector", "morphological_cleanup",
-        # Analysis
-        "getis_ord_gi_star", "threshold_segmentation",
-        "count_above_threshold",
-        # Statistics
+        # Archaeology — all 27 tools
+        "edge_detection_canny", "edge_detection_sobel",
+        "linear_feature_detection", "geometric_pattern_analysis",
+        "principal_component_analysis", "adaptive_contrast_enhancement",
+        "band_ratio_calculator", "spectral_anomaly_detection",
+        "texture_analysis_glcm", "systematic_grid_analysis",
+        "regularity_index", "crop_mark_detector",
+        "morphological_cleanup", "dem_hillshade",
+        "multi_directional_hillshade", "local_relief_model",
+        "sky_view_factor", "temporal_difference_map", "shape_statistics",
+        "bare_soil_index", "soil_adjusted_vegetation_index",
+        "moisture_index", "iron_oxide_index", "clay_mineral_index",
+        "brightness_index", "redness_index", "archaeological_composite_index",
+        # Analysis — spatial clustering & change detection
+        "getis_ord_gi_star", "analyze_hotspot_direction",
+        "threshold_segmentation", "count_above_threshold",
+        # Statistics — image stats useful for analysis
         "coefficient_of_variation", "mean",
+        "calc_single_image_std", "calc_single_image_min",
+        "calc_single_image_max", "calc_single_image_hotspot_tif",
+        "grayscale_to_colormap",
+        # Perception — segmentation & counting
+        "count_skeleton_contours",
+        # Index — vegetation/spectral indices (multi-band)
+        "calculate_ndvi", "calculate_ndwi", "calculate_ndbi", "calculate_evi",
+        # Statistics — post-index analysis
+        "calculate_tif_difference", "calculate_tif_average",
+        "calculate_intersection_percentage",
+        "get_percentile_value_from_image", "calculate_area", "subtract",
+        "calc_single_image_hotspot_percentage",
+        "count_pixels_satisfying_conditions", "apply_cloud_mask",
+        # Index — additional spectral indices
+        "calculate_nbr", "calculate_fvc",
+        # Inversion — thermal analysis
+        "ATI",
+        # Statistics — robust stats
+        "calc_single_image_median",
+        # Analysis — transect analysis
+        "detect_change_points",
+        # Perception — feature measurement
+        "calculate_bbox_area", "centroid_distance_extremes",
     }
     _tools = [t for t in _tools if t.name in PRIORITY_TOOLS]
     logger.info(f"Filtered to {len(_tools)} priority tools (from full set)")
@@ -245,6 +274,7 @@ async def stream_agent_response(
     all_messages = lc_history + [user_msg]
 
     final_text_parts: list[str] = []
+    _last_event_was_tool = False  # Track if we're in final answer phase
 
     try:
         async for event in agent_to_use.astream_events(
@@ -258,17 +288,20 @@ async def stream_agent_response(
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     content = chunk.content
+                    # Use "agent" event type for final answer (after tools ran)
+                    sse_type = "agent" if _last_event_was_tool else "thinking"
                     if isinstance(content, list):
                         # Multimodal chunks
                         for block in content:
                             if isinstance(block, dict) and block.get("type") == "text":
                                 final_text_parts.append(block["text"])
-                                yield _sse("thinking", {"text": block["text"]})
+                                yield _sse(sse_type, {"text": block["text"]})
                     else:
                         final_text_parts.append(str(content))
-                        yield _sse("thinking", {"text": str(content)})
+                        yield _sse(sse_type, {"text": str(content)})
 
             elif kind == "on_tool_start":
+                _last_event_was_tool = False  # Reset — we're in tool execution
                 tool_name = event.get("name", "unknown_tool")
                 tool_input = event.get("data", {}).get("input", {})
                 yield _sse("tool_call", {"tool": tool_name, "input": tool_input})
@@ -291,9 +324,22 @@ async def stream_agent_response(
                 for fname in raw_matches:
                     png_name = re.sub(r'\.(tif|tiff)$', '.png', fname)
                     if png_name not in result_images and results_dir:
-                        # Check if the PNG exists in results dir
+                        # Check if the PNG already exists in results dir
                         if (results_dir / png_name).exists():
                             result_images.append(png_name)
+                        # Or try to convert the TIF from MCP_TEMP_DIR now
+                        elif MCP_TEMP_DIR.exists():
+                            tif_src = MCP_TEMP_DIR / fname
+                            if tif_src.exists() and fname.lower().endswith(('.tif', '.tiff')):
+                                try:
+                                    _tif_to_png(tif_src, results_dir / png_name)
+                                    result_images.append(png_name)
+                                except Exception:
+                                    pass
+                            # Also check if it's already a PNG in temp
+                            elif (MCP_TEMP_DIR / png_name).exists():
+                                shutil.copy2(MCP_TEMP_DIR / png_name, results_dir / png_name)
+                                result_images.append(png_name)
 
                 # Deduplicate
                 result_images = list(dict.fromkeys(result_images))
@@ -306,6 +352,7 @@ async def stream_agent_response(
                         "result_images": result_images,
                     },
                 )
+                _last_event_was_tool = True  # Next LLM output is the final answer
 
     except Exception as exc:
         logger.exception("Agent stream error")
@@ -409,7 +456,9 @@ def _copy_mcp_results(results_dir: Path, tool_name: str) -> list[str]:
     if not MCP_TEMP_DIR.exists():
         return copied
 
-    for src in MCP_TEMP_DIR.iterdir():
+    for src in MCP_TEMP_DIR.rglob("*"):
+        if not src.is_file():
+            continue
         if src.suffix.lower() in {".png", ".jpg", ".jpeg"}:
             dest = results_dir / src.name
             if not dest.exists():
@@ -454,10 +503,20 @@ def _tif_to_png(src: Path, dest: Path) -> None:
         arr = ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
     ds = None
 
-    # Normalize to 0-255
-    vmin, vmax = np.nanmin(arr), np.nanmax(arr)
+    # Normalize to 0-255 using percentile stretch (2%-98%) for better contrast
+    finite = arr[np.isfinite(arr)] if arr.ndim == 2 else arr[np.isfinite(arr).all(axis=-1)]
+    if finite.size > 0:
+        vmin = np.percentile(finite, 2)
+        vmax = np.percentile(finite, 98)
+    else:
+        vmin, vmax = np.nanmin(arr), np.nanmax(arr)
     if vmax > vmin:
         arr = (arr - vmin) / (vmax - vmin) * 255
     arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+    # Apply colormap for single-band images (much better than grayscale)
+    if arr.ndim == 2:
+        import cv2 as _cv2
+        arr = _cv2.applyColorMap(arr, _cv2.COLORMAP_INFERNO)
 
     cv2.imwrite(str(dest), arr)

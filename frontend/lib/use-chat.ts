@@ -38,6 +38,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, messages };
     }
 
+    case "UPDATE_LAST_AGENT": {
+      const messages = [...state.messages];
+      const lastIdx = messages.length - 1;
+      if (lastIdx >= 0 && messages[lastIdx].type === "agent") {
+        messages[lastIdx] = {
+          type: "agent",
+          content: messages[lastIdx].content + action.content,
+        };
+      } else {
+        messages.push({ type: "agent", content: action.content });
+      }
+      return { ...state, messages };
+    }
+
     case "SET_STREAMING":
       return { ...state, isStreaming: action.isStreaming };
 
@@ -138,6 +152,7 @@ export function useChat(apiKey?: string) {
                 tool: toolName,
                 result: toolOutput,
                 imageId: imageId,
+                imageIds: resultImages.length > 0 ? resultImages : undefined,
               };
               dispatch({ type: "ADD_MESSAGE", message: toolResultMsg });
 
@@ -145,15 +160,15 @@ export function useChat(apiKey?: string) {
               // Use result_images from backend, or extract filenames from output text
               let imagesToRegister = resultImages;
               if (imagesToRegister.length === 0 && toolOutput) {
-                // Extract .tif/.png filenames from output text paths
+                // Extract .tif/.png filenames from output text (with or without path prefix)
                 const matches = toolOutput.match(
-                  /\/([^/\s]+)\.(tif|tiff|png|jpg|jpeg)/gi,
+                  /([a-zA-Z0-9_-]+)\.(tif|tiff|png|jpg|jpeg)/gi,
                 );
                 if (matches) {
                   imagesToRegister = [
                     ...new Set(
                       matches.map((m: string) => {
-                        const name = m.split("/").pop() ?? "";
+                        const name = m.split("/").pop() ?? m;
                         // Convert .tif to .png (backend converts TIF→PNG)
                         return name.replace(/\.(tif|tiff)$/i, ".png");
                       }),
@@ -175,22 +190,32 @@ export function useChat(apiKey?: string) {
               break;
             }
 
-            case "agent":
-            case "message": {
-              const agentContent =
+            case "agent": {
+              // Final answer streamed as chunks — accumulate into agent message
+              const agentChunk =
                 (data.text as string) ?? (data.content as string) ?? "";
-              if (agentContent) {
+              if (agentChunk) {
+                lastThinkingRef.current += agentChunk;
+                dispatch({ type: "UPDATE_LAST_AGENT", content: agentChunk });
+              }
+              break;
+            }
+
+            case "message": {
+              const msgContent =
+                (data.text as string) ?? (data.content as string) ?? "";
+              if (msgContent) {
                 dispatch({
                   type: "ADD_MESSAGE",
                   message: {
                     type: "agent",
-                    content: agentContent,
+                    content: msgContent,
                     images: data.images as string[] | undefined,
                   },
                 });
                 historyRef.current = [
                   ...historyRef.current,
-                  { role: "assistant", content: agentContent },
+                  { role: "assistant", content: msgContent },
                 ];
               }
               break;
