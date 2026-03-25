@@ -202,7 +202,18 @@ def _build_user_message(message: str, file_id: Optional[str]) -> HumanMessage:
                         f"clay_mineral_index, bare_soil_index, or any tool requiring NIR/SWIR bands."
                     )
                 else:
-                    band_info = f" This is a {n_bands}-band image. All tools are available."
+                    # Read band descriptions to help agent pick correct indices
+                    band_descs = []
+                    for i in range(1, n_bands + 1):
+                        desc = ds.GetRasterBand(i).GetDescription() or ""
+                        band_descs.append(f"band{i}={desc}" if desc else f"band{i}")
+                    ds = None
+                    band_map = ", ".join(band_descs)
+                    band_info = (
+                        f" This is a {n_bands}-band image ({band_map}). All tools are available. "
+                        f"IMPORTANT: Pass the correct band index numbers matching this image's band order "
+                        f"(NOT Sentinel-2 default band numbers). For example, if nir is band 7, use nir_band=7."
+                    )
         except Exception:
             pass
         path_instruction = (
