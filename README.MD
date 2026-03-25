@@ -5,7 +5,7 @@
 
 **AI-Powered Archaeological Analysis Platform**
 
-Detect geoglyphs, ancient structures, and archaeological features in satellite imagery using an AI agent with 120+ specialized Earth observation tools.
+An adapted version of [Earth-Agent](https://arxiv.org/pdf/2509.23141) (ICLR 2026) with **19 additional archaeology-specific tools** and an interactive web interface for detecting geoglyphs, ancient structures, and archaeological features in satellite imagery.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
@@ -18,15 +18,30 @@ Detect geoglyphs, ancient structures, and archaeological features in satellite i
 
 ## What is ArchEO-Agent?
 
-ArchEO-Agent is a research demo that combines Claude AI with 120+ remote sensing tools to analyze satellite imagery for archaeological features. Upload a GeoTIFF or image, ask questions in natural language, and the agent autonomously selects and chains analysis tools to find hidden features like the Nazca Lines, buried walls, ancient roads, and crop marks.
+ArchEO-Agent adapts the [Earth-Agent](https://github.com/opendatalab/Earth-Agent) framework for archaeological remote sensing. It adds **19 new archaeology-specific tools** to Earth-Agent's existing 104 tools (across 5 MCP servers: Index, Inversion, Perception, Analysis, Statistics), and wraps everything in a chat-based web interface powered by Claude AI.
 
-**Key capabilities:**
+Upload a GeoTIFF or satellite image, ask questions in natural language, and the agent autonomously selects and chains tools to find hidden features like the Nazca Lines, buried walls, ancient roads, and crop marks.
+
+### What's New vs Earth-Agent
+
+| | Earth-Agent | ArchEO-Agent |
+|---|---|---|
+| **Tools** | 104 tools across 5 MCP servers | **123 tools** (+ 19 archaeology tools in a 6th server) |
+| **Interface** | Python scripts / CLI | **Web UI** with chat, image viewer, SSE streaming |
+| **LLM** | GPT-5 / DeepSeek / Kimi K2 | **Claude Haiku 4.5** with vision |
+| **Focus** | General Earth observation benchmark | **Archaeological site detection** (Nazca, Caral, Peru) |
+| **Parameters** | Default CV thresholds | **Tuned for geoglyphs** (Canny 20/60, minLineLength=5, adaptive thresholding) |
+| **Reporting** | JSON evaluation metrics | **Evidence-based natural language** (no hallucinated findings) |
+
+### Key Capabilities
+
 - Edge detection tuned for faint geoglyphs (Canny, Sobel, Hough lines)
 - Spectral analysis for buried structures (PCA, band ratios, NDVI anomalies)
 - Texture analysis to distinguish man-made vs natural patterns (GLCM, regularity index)
 - Spatial clustering to find archaeological hotspots (Getis-Ord Gi*)
+- Crop mark detection via vegetation anomaly mapping
 - Multi-band satellite support (Sentinel-2, Landsat, ASTER, plain images)
-- Strict evidence-based reporting (no hallucinated findings)
+- Strict evidence-based reporting — agent only reports what tools actually measured
 
 <div align="center">
 <img src="imgs/Overview.png" alt="Architecture Overview" width="90%">
@@ -213,14 +228,9 @@ After uploading a satellite image of an archaeological site:
 "Check for crop marks and vegetation anomalies that might indicate buried walls"
 ```
 
-## Based on Earth-Agent
+## Acknowledgments
 
-ArchEO-Agent extends the [Earth-Agent](https://arxiv.org/pdf/2509.23141) framework (ICLR 2026) with:
-- A web-based chat interface for interactive analysis
-- 19 new archaeology-specific tools tuned for geoglyph detection
-- Parameters optimized for Peruvian archaeological sites (Nazca, Caral)
-- Strict anti-hallucination rules for evidence-based reporting
-- Real-time streaming of agent reasoning and tool execution
+ArchEO-Agent is built on top of [Earth-Agent](https://github.com/opendatalab/Earth-Agent) by Shanghai AI Laboratory & Sun Yat-sen University (ICLR 2026). The original 104 MCP tools and ReAct agent architecture are from their work. ArchEO-Agent adds the archaeology tool server, web interface, and parameter tuning for Peruvian site detection.
 
 ## Citation
 
