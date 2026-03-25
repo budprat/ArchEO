@@ -15,6 +15,16 @@ const PRESETS = [
   { name: "Machu Picchu", lat: -13.1631, lon: -72.545 },
   { name: "Chan Chan", lat: -8.106, lon: -79.0745 },
   { name: "Cusco", lat: -13.532, lon: -71.9675 },
+  { name: "Huaca del Sol", lat: -8.1325, lon: -79.0015 },
+  { name: "Pachacamac", lat: -12.2275, lon: -76.8985 },
+  { name: "Sacsayhuaman", lat: -13.5094, lon: -71.9821 },
+  { name: "Ollantaytambo", lat: -13.2588, lon: -72.2636 },
+  { name: "Choquequirao", lat: -13.3921, lon: -72.8607 },
+  { name: "Sechin", lat: -9.4669, lon: -78.2753 },
+  { name: "Sipan", lat: -6.8044, lon: -79.5969 },
+  { name: "Kuelap", lat: -6.4167, lon: -77.9214 },
+  { name: "Chavin de Huantar", lat: -9.5947, lon: -77.1769 },
+  { name: "Tiwanaku", lat: -16.5544, lon: -68.6733 },
 ];
 
 export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
