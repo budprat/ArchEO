@@ -6,6 +6,51 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ChatMessage as ChatMessageType } from "@/lib/types";
 
+function formatToolResult(raw: string): string {
+  if (!raw) return "";
+
+  // Try JSON parse first, then Python dict (single quotes → double quotes)
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    try {
+      // Python str(dict) uses single quotes — convert to JSON
+      const fixed = raw
+        .replace(/'/g, '"')
+        .replace(/True/g, "true")
+        .replace(/False/g, "false")
+        .replace(/None/g, "null");
+      parsed = JSON.parse(fixed);
+    } catch {
+      // Not parseable
+    }
+  }
+
+  if (parsed && typeof parsed === "object") {
+    return Object.entries(parsed)
+      .map(([k, v]) => {
+        if (Array.isArray(v)) {
+          if (v.length <= 3)
+            return `${k}: ${v.map((x) => (typeof x === "number" ? Number(x).toFixed(2) : x)).join(", ")}`;
+          return `${k}: ${v.length} items`;
+        }
+        if (typeof v === "number") return `${k}: ${Number(v).toFixed(4)}`;
+        if (typeof v === "string" && v.includes("/")) {
+          return `${k}: ${v.split("/").pop()}`;
+        }
+        return `${k}: ${v}`;
+      })
+      .join("\n");
+  }
+
+  // Fallback: clean file paths and Python repr artifacts
+  return raw
+    .replace(/\/[^\s'",\]]*\/([^\s'",\]]+)/g, "$1")
+    .replace(/^\{|\}$/g, "")
+    .replace(/'/g, "");
+}
+
 interface ChatMessageProps {
   message: ChatMessageType;
   onImageClick?: (imageId: string) => void;
@@ -45,7 +90,13 @@ export function ChatMessage({ message, onImageClick }: ChatMessageProps) {
         </div>
       );
 
-    case "tool_result":
+    case "tool_result": {
+      // Extract image filename from result text (paths like /.../_mcp_temp/file.tif or /.../_mcp_temp/file.png)
+      const imgMatch =
+        message.result?.match(/\/([^/]+)\.(tif|tiff|png|jpg|jpeg)\s*$/i) ||
+        message.result?.match(/\/([^/]+)\.(tif|tiff|png|jpg|jpeg)/i);
+      const resultImgName = imgMatch ? `${imgMatch[1]}.png` : message.imageId;
+
       return (
         <div className="flex justify-start">
           <div className="max-w-[90%] rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 dark:border-green-900 dark:bg-green-950/30">
@@ -56,12 +107,12 @@ export function ChatMessage({ message, onImageClick }: ChatMessageProps) {
               <span className="text-xs text-muted-foreground">Result</span>
             </div>
             <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-4">
-              {message.result}
+              {formatToolResult(message.result)}
             </p>
-            {message.imageId && onImageClick && (
+            {resultImgName && onImageClick && (
               <button
                 className="mt-2 text-xs text-primary underline-offset-2 hover:underline"
-                onClick={() => onImageClick(message.imageId!)}
+                onClick={() => onImageClick(resultImgName)}
                 type="button"
               >
                 View result image
@@ -70,6 +121,7 @@ export function ChatMessage({ message, onImageClick }: ChatMessageProps) {
           </div>
         </div>
       );
+    }
 
     case "agent":
       return (

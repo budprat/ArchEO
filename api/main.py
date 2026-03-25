@@ -58,6 +58,7 @@ class ChatRequest(BaseModel):
     message: str
     file_id: Optional[str] = None
     history: list[HistoryEntry] = []
+    api_key: Optional[str] = None  # Optional client-provided API key
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,12 @@ async def health():
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     """Accept a satellite/aerial image and run the upload pipeline."""
+    # Clear old MCP temp files to prevent stale results bleeding into new uploads
+    mcp_temp = UPLOADS_DIR / "_mcp_temp"
+    if mcp_temp.exists():
+        import shutil
+        shutil.rmtree(mcp_temp, ignore_errors=True)
+        mcp_temp.mkdir(parents=True, exist_ok=True)
     # Validate extension
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -122,6 +129,7 @@ async def chat(request: ChatRequest):
             message=request.message,
             file_id=request.file_id,
             history=history_dicts,
+            api_key_override=request.api_key,
         ):
             yield chunk
 

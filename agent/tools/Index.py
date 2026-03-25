@@ -14,6 +14,19 @@ TEMP_DIR = Path(args.temp_dir)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_input(p: str) -> str:
+    """Resolve input path: try as-is, then under TEMP_DIR, then just filename."""
+    if Path(p).exists():
+        return p
+    t = TEMP_DIR / p
+    if t.exists():
+        return str(t)
+    t2 = TEMP_DIR / Path(p).name
+    if t2.exists():
+        return str(t2)
+    return p
+
+
 def calculate_ndvi(input_nir_path, input_red_path, output_path):
     """
     Calculate the Normalized Difference Vegetation Index (NDVI) from input raster files
@@ -32,11 +45,11 @@ def calculate_ndvi(input_nir_path, input_red_path, output_path):
     import numpy as np
 
     # Open the NIR and Red band raster files
-    with rasterio.open(input_nir_path) as nir_src:
+    with rasterio.open(_resolve_input(input_nir_path)) as nir_src:
         nir_band = nir_src.read(1)  # Read the first band (assuming single-band rasters)
         nir_profile = nir_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_red_path) as red_src:
+    with rasterio.open(_resolve_input(input_red_path)) as red_src:
         red_band = red_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -116,11 +129,11 @@ def calculate_ndwi(input_nir_path, input_swir_path, output_path):
     import numpy as np
 
     # Open the NIR and SWIR band raster files
-    with rasterio.open(input_nir_path) as nir_src:
+    with rasterio.open(_resolve_input(input_nir_path)) as nir_src:
         nir_band = nir_src.read(1)  # Read the first band (assuming single-band rasters)
         nir_profile = nir_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_swir_path) as swir_src:
+    with rasterio.open(_resolve_input(input_swir_path)) as swir_src:
         swir_band = swir_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -200,11 +213,11 @@ def calculate_ndbi(input_swir_path, input_nir_path, output_path):
     import numpy as np
 
     # Open the SWIR and NIR band raster files
-    with rasterio.open(input_swir_path) as swir_src:
+    with rasterio.open(_resolve_input(input_swir_path)) as swir_src:
         swir_band = swir_src.read(1)  # Read the first band (assuming single-band rasters)
         swir_profile = swir_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_nir_path) as nir_src:
+    with rasterio.open(_resolve_input(input_nir_path)) as nir_src:
         nir_band = nir_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -287,14 +300,14 @@ def  calculate_evi(input_nir_path, input_red_path, input_blue_path, output_path,
     import numpy as np
 
     # Open the NIR, Red, and Blue band raster files
-    with rasterio.open(input_nir_path) as nir_src:
+    with rasterio.open(_resolve_input(input_nir_path)) as nir_src:
         nir_band = nir_src.read(1)  # Read the first band (assuming single-band rasters)
         nir_profile = nir_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_red_path) as red_src:
+    with rasterio.open(_resolve_input(input_red_path)) as red_src:
         red_band = red_src.read(1)  # Read the first band (assuming single-band rasters)
 
-    with rasterio.open(input_blue_path) as blue_src:
+    with rasterio.open(_resolve_input(input_blue_path)) as blue_src:
         blue_band = blue_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -387,11 +400,11 @@ def calculate_nbr(input_nir_path, input_swir_path, output_path):
     import numpy as np
 
     # Open the NIR and SWIR band raster files
-    with rasterio.open(input_nir_path) as nir_src:
+    with rasterio.open(_resolve_input(input_nir_path)) as nir_src:
         nir_band = nir_src.read(1)  # Read the first band (assuming single-band rasters)
         nir_profile = nir_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_swir_path) as swir_src:
+    with rasterio.open(_resolve_input(input_swir_path)) as swir_src:
         swir_band = swir_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -475,11 +488,11 @@ def calculate_fvc(input_nir_path, input_red_path, output_path, ndvi_min=0.1, ndv
     import numpy as np
 
     # Open the NIR and Red band raster files
-    with rasterio.open(input_nir_path) as nir_src:
+    with rasterio.open(_resolve_input(input_nir_path)) as nir_src:
         nir_band = nir_src.read(1)  # Read the first band (assuming single-band rasters)
         nir_profile = nir_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_red_path) as red_src:
+    with rasterio.open(_resolve_input(input_red_path)) as red_src:
         red_band = red_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -575,17 +588,17 @@ def calculate_wri(input_green_path, input_red_path, input_nir_path, input_swir_p
     import numpy as np
 
     # Open the Green, Red, NIR, and SWIR band raster files
-    with rasterio.open(input_green_path) as green_src:
+    with rasterio.open(_resolve_input(input_green_path)) as green_src:
         green_band = green_src.read(1)  # Read the first band (assuming single-band rasters)
         green_profile = green_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_red_path) as red_src:
+    with rasterio.open(_resolve_input(input_red_path)) as red_src:
         red_band = red_src.read(1)  # Read the first band (assuming single-band rasters)
 
-    with rasterio.open(input_nir_path) as nir_src:
+    with rasterio.open(_resolve_input(input_nir_path)) as nir_src:
         nir_band = nir_src.read(1)  # Read the first band (assuming single-band rasters)
 
-    with rasterio.open(input_swir_path) as swir_src:
+    with rasterio.open(_resolve_input(input_swir_path)) as swir_src:
         swir_band = swir_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -677,11 +690,11 @@ def calculate_ndti(input_red_path, input_green_path, output_path):
     import numpy as np
 
     # Open the Red and Green band raster files
-    with rasterio.open(input_red_path) as red_src:
+    with rasterio.open(_resolve_input(input_red_path)) as red_src:
         red_band = red_src.read(1)  # Read the first band (assuming single-band rasters)
         red_profile = red_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_green_path) as green_src:
+    with rasterio.open(_resolve_input(input_green_path)) as green_src:
         green_band = green_src.read(1)  # Read the first band (assuming single-band rasters)
 
     # Ensure the input band data is in numpy array format
@@ -763,7 +776,7 @@ def calculate_frp(input_frp_path, output_path, fire_threshold=0):
     import numpy as np
 
     # Open the FRP raster file
-    with rasterio.open(input_frp_path) as frp_src:
+    with rasterio.open(_resolve_input(input_frp_path)) as frp_src:
         frp_band = frp_src.read(1)  # Read the first band (assuming single-band rasters)
         frp_profile = frp_src.profile  # Get the metadata profile
 
@@ -847,11 +860,11 @@ def calculate_ndsi(input_green_path: str, input_swir_path: str, output_path: str
     from scipy.ndimage import zoom
 
     # Open the Green and SWIR band raster files
-    with rasterio.open(input_green_path) as green_src:
+    with rasterio.open(_resolve_input(input_green_path)) as green_src:
         green_band = green_src.read(1)  # Read the first band (assuming single-band rasters)
         green_profile = green_src.profile  # Get the metadata profile
 
-    with rasterio.open(input_swir_path) as swir_src:
+    with rasterio.open(_resolve_input(input_swir_path)) as swir_src:
         swir_band = swir_src.read(1)  # Read the first band (assuming single-band rasters)
         swir_profile = swir_src.profile
 
@@ -1057,10 +1070,10 @@ def compute_tvdi(
     from scipy.stats import linregress
 
     # Read NDVI and LST
-    with rasterio.open(ndvi_path) as src_ndvi:
+    with rasterio.open(_resolve_input(ndvi_path)) as src_ndvi:
         ndvi = src_ndvi.read(1).astype(np.float32) * 0.0001
         profile = src_ndvi.profile
-    with rasterio.open(lst_path) as src_lst:
+    with rasterio.open(_resolve_input(lst_path)) as src_lst:
         lst = src_lst.read(1).astype(np.float32) * 0.02
 
     # Create mask for valid data

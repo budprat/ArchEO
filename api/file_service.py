@@ -72,7 +72,7 @@ def extract_metadata(file_path: str) -> dict:
 
 
 def generate_thumbnail(
-    file_path: str, output_path: str, max_size: int = 1024
+    file_path: str, output_path: str, max_size: int = 256
 ) -> str:
     """Generate a PNG thumbnail normalized to uint8, max *max_size* px on longest side.
 
@@ -152,6 +152,8 @@ def process_upload(
     metadata = extract_metadata(str(dest_file))
     metadata["original_name"] = original_name
     metadata["file_id"] = file_id
+    # Frontend expects "dimensions" as [width, height]
+    metadata["dimensions"] = [metadata.get("width", 0), metadata.get("height", 0)]
 
     # Thumbnail
     thumbnail_path = str(dest_dir / "thumbnail.png")
@@ -165,5 +167,5 @@ def process_upload(
     return {
         "file_id": file_id,
         "metadata": metadata,
-        "thumbnail_url": f"/uploads/{file_id}/thumbnail.png",
+        "thumbnail_url": f"/api/files/{file_id}?type=thumbnail",
     }

@@ -30,11 +30,23 @@ export function ChatPanel({
   const [input, setInput] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const userScrolledUpRef = useRef(false);
 
-  // Auto-scroll to bottom when messages change
+  // Track if user scrolled up
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    userScrolledUpRef.current = !atBottom;
+  }, []);
+
+  // Auto-scroll only if user is near bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!userScrolledUpRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   const handleSend = useCallback(() => {
@@ -93,7 +105,11 @@ export function ChatPanel({
       onDragLeave={onDragLeave}
     >
       {/* Messages */}
-      <ScrollArea className="flex-1 px-4 py-4">
+      <div
+        className="flex-1 overflow-y-auto px-4 py-4"
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+      >
         {isEmpty ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
             <UploadCloud className="size-12 text-muted-foreground/40" />
@@ -125,7 +141,7 @@ export function ChatPanel({
           </div>
         )}
         <div ref={bottomRef} />
-      </ScrollArea>
+      </div>
 
       {/* Input */}
       <div className="border-t bg-background px-4 py-3">

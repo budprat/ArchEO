@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useReducer, useRef, useCallback } from 'react';
+import { useReducer, useRef, useCallback } from "react";
 import type {
   AppState,
   AppAction,
@@ -8,49 +8,59 @@ import type {
   UploadedFile,
   ResultImage,
   HistoryEntry,
-} from './types';
-import { uploadFile as apiUploadFile, streamChat } from './api';
+} from "./types";
+import { uploadFile as apiUploadFile, streamChat } from "./api";
 
 const initialState: AppState = {
   messages: [],
   isStreaming: false,
   uploadedFile: null,
   resultImages: [],
-  activeImageLayer: 'original',
+  activeImageLayer: "original",
 };
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case 'ADD_MESSAGE':
+    case "ADD_MESSAGE":
       return { ...state, messages: [...state.messages, action.message] };
 
-    case 'UPDATE_LAST_THINKING': {
+    case "UPDATE_LAST_THINKING": {
       const messages = [...state.messages];
       const lastIdx = messages.length - 1;
-      if (lastIdx >= 0 && messages[lastIdx].type === 'thinking') {
+      if (lastIdx >= 0 && messages[lastIdx].type === "thinking") {
         messages[lastIdx] = {
-          type: 'thinking',
+          type: "thinking",
           content: messages[lastIdx].content + action.content,
         };
       } else {
-        messages.push({ type: 'thinking', content: action.content });
+        messages.push({ type: "thinking", content: action.content });
       }
       return { ...state, messages };
     }
 
-    case 'SET_STREAMING':
+    case "SET_STREAMING":
       return { ...state, isStreaming: action.isStreaming };
 
-    case 'SET_UPLOADED_FILE':
-      return { ...state, uploadedFile: action.file };
+    case "SET_UPLOADED_FILE":
+      return {
+        ...state,
+        uploadedFile: action.file,
+        resultImages: [],
+        activeImageLayer: "original",
+        messages: [],
+      };
 
-    case 'ADD_RESULT_IMAGE':
+    case "ADD_RESULT_IMAGE": {
+      // Deduplicate by id — prevent infinite re-render from duplicate images
+      const exists = state.resultImages.some((r) => r.id === action.image.id);
+      if (exists) return state;
       return { ...state, resultImages: [...state.resultImages, action.image] };
+    }
 
-    case 'SET_ACTIVE_LAYER':
+    case "SET_ACTIVE_LAYER":
       return { ...state, activeImageLayer: action.layer };
 
-    case 'CLEAR_MESSAGES':
+    case "CLEAR_MESSAGES":
       return { ...state, messages: [] };
 
     default:
@@ -58,24 +68,26 @@ function reducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-export function useChat() {
+export function useChat(apiKey?: string) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const abortControllerRef = useRef<AbortController | null>(null);
   const historyRef = useRef<HistoryEntry[]>([]);
+  const lastThinkingRef = useRef<string>("");
 
   const sendMessage = useCallback(
     (content: string) => {
       const userMessage: ChatMessage = {
-        type: 'user',
+        type: "user",
         content,
         fileId: state.uploadedFile?.id,
       };
-      dispatch({ type: 'ADD_MESSAGE', message: userMessage });
-      dispatch({ type: 'SET_STREAMING', isStreaming: true });
+      dispatch({ type: "ADD_MESSAGE", message: userMessage });
+      dispatch({ type: "SET_STREAMING", isStreaming: true });
+      lastThinkingRef.current = "";
 
       historyRef.current = [
         ...historyRef.current,
-        { role: 'user', content, fileId: state.uploadedFile?.id },
+        { role: "user", content, fileId: state.uploadedFile?.id },
       ];
 
       const controller = streamChat(
@@ -86,68 +98,110 @@ export function useChat() {
           const { type, data } = event;
 
           switch (type) {
-            case 'thinking':
+            case "thinking": {
+              const chunk =
+                (data.text as string) ?? (data.content as string) ?? "";
+              lastThinkingRef.current += chunk;
               dispatch({
-                type: 'UPDATE_LAST_THINKING',
-                content: (data.content as string) ?? '',
+                type: "UPDATE_LAST_THINKING",
+                content: chunk,
               });
               break;
+            }
 
-            case 'tool_call':
+            case "tool_call":
               dispatch({
-                type: 'ADD_MESSAGE',
+                type: "ADD_MESSAGE",
                 message: {
-                  type: 'tool_call',
-                  tool: (data.tool as string) ?? '',
-                  params: (data.params as Record<string, unknown>) ?? {},
+                  type: "tool_call",
+                  tool: (data.tool as string) ?? "",
+                  params:
+                    (data.input as Record<string, unknown>) ??
+                    (data.params as Record<string, unknown>) ??
+                    {},
                 },
               });
               break;
 
-            case 'tool_result': {
-              const toolResultMsg: ChatMessage = {
-                type: 'tool_result',
-                tool: (data.tool as string) ?? '',
-                result: (data.result as string) ?? '',
-                imageId: data.image_id as string | undefined,
-              };
-              dispatch({ type: 'ADD_MESSAGE', message: toolResultMsg });
+            case "tool_result": {
+              const toolName = (data.tool as string) ?? "";
+              const toolOutput =
+                (data.output as string) ?? (data.result as string) ?? "";
+              const resultImages = (data.result_images as string[]) ?? [];
+              const imageId =
+                resultImages.length > 0
+                  ? resultImages[0]
+                  : (data.image_id as string | undefined);
 
-              if (data.image_id && data.image_url) {
-                const resultImage: ResultImage = {
-                  id: data.image_id as string,
-                  tool: (data.tool as string) ?? '',
-                  url: data.image_url as string,
-                  label: (data.label as string) ?? (data.tool as string) ?? 'Result',
-                };
-                dispatch({ type: 'ADD_RESULT_IMAGE', image: resultImage });
+              const toolResultMsg: ChatMessage = {
+                type: "tool_result",
+                tool: toolName,
+                result: toolOutput,
+                imageId: imageId,
+              };
+              dispatch({ type: "ADD_MESSAGE", message: toolResultMsg });
+
+              // Register result images for the image viewer
+              // Use result_images from backend, or extract filenames from output text
+              let imagesToRegister = resultImages;
+              if (imagesToRegister.length === 0 && toolOutput) {
+                // Extract .tif/.png filenames from output text paths
+                const matches = toolOutput.match(
+                  /\/([^/\s]+)\.(tif|tiff|png|jpg|jpeg)/gi,
+                );
+                if (matches) {
+                  imagesToRegister = [
+                    ...new Set(
+                      matches.map((m: string) => {
+                        const name = m.split("/").pop() ?? "";
+                        // Convert .tif to .png (backend converts TIF→PNG)
+                        return name.replace(/\.(tif|tiff)$/i, ".png");
+                      }),
+                    ),
+                  ];
+                }
+              }
+              if (imagesToRegister.length > 0 && state.uploadedFile) {
+                for (const imgName of imagesToRegister) {
+                  const resultImage: ResultImage = {
+                    id: imgName,
+                    tool: toolName,
+                    url: `/api/results/${state.uploadedFile.id}/${imgName}`,
+                    label: `${toolName}: ${imgName}`,
+                  };
+                  dispatch({ type: "ADD_RESULT_IMAGE", image: resultImage });
+                }
               }
               break;
             }
 
-            case 'agent': {
-              const agentContent = (data.content as string) ?? '';
-              dispatch({
-                type: 'ADD_MESSAGE',
-                message: {
-                  type: 'agent',
-                  content: agentContent,
-                  images: data.images as string[] | undefined,
-                },
-              });
-              historyRef.current = [
-                ...historyRef.current,
-                { role: 'assistant', content: agentContent },
-              ];
+            case "agent":
+            case "message": {
+              const agentContent =
+                (data.text as string) ?? (data.content as string) ?? "";
+              if (agentContent) {
+                dispatch({
+                  type: "ADD_MESSAGE",
+                  message: {
+                    type: "agent",
+                    content: agentContent,
+                    images: data.images as string[] | undefined,
+                  },
+                });
+                historyRef.current = [
+                  ...historyRef.current,
+                  { role: "assistant", content: agentContent },
+                ];
+              }
               break;
             }
 
-            case 'error':
+            case "error":
               dispatch({
-                type: 'ADD_MESSAGE',
+                type: "ADD_MESSAGE",
                 message: {
-                  type: 'error',
-                  message: (data.message as string) ?? 'Unknown error',
+                  type: "error",
+                  message: (data.message as string) ?? "Unknown error",
                 },
               });
               break;
@@ -158,19 +212,28 @@ export function useChat() {
         },
         (error) => {
           dispatch({
-            type: 'ADD_MESSAGE',
-            message: { type: 'error', message: error.message },
+            type: "ADD_MESSAGE",
+            message: { type: "error", message: error.message },
           });
-          dispatch({ type: 'SET_STREAMING', isStreaming: false });
+          dispatch({ type: "SET_STREAMING", isStreaming: false });
         },
         () => {
-          dispatch({ type: 'SET_STREAMING', isStreaming: false });
-        }
+          // Promote accumulated thinking text to an agent message for history
+          if (lastThinkingRef.current) {
+            historyRef.current = [
+              ...historyRef.current,
+              { role: "assistant", content: lastThinkingRef.current },
+            ];
+          }
+          lastThinkingRef.current = "";
+          dispatch({ type: "SET_STREAMING", isStreaming: false });
+        },
+        apiKey,
       );
 
       abortControllerRef.current = controller;
     },
-    [state.uploadedFile]
+    [state.uploadedFile, apiKey],
   );
 
   const uploadFile = useCallback(async (file: File) => {
@@ -179,19 +242,22 @@ export function useChat() {
       const uploadedFile: UploadedFile = {
         id: result.file_id,
         name: file.name,
-        format: (result.metadata?.format as string) ?? file.name.split('.').pop() ?? 'unknown',
+        format:
+          (result.metadata?.format as string) ??
+          file.name.split(".").pop() ??
+          "unknown",
         dimensions: (result.metadata?.dimensions as [number, number]) ?? [0, 0],
         bands: (result.metadata?.bands as number) ?? 0,
         crs: (result.metadata?.crs as string | null) ?? null,
         thumbnailUrl: result.thumbnail_url,
       };
-      dispatch({ type: 'SET_UPLOADED_FILE', file: uploadedFile });
+      dispatch({ type: "SET_UPLOADED_FILE", file: uploadedFile });
     } catch (error) {
       dispatch({
-        type: 'ADD_MESSAGE',
+        type: "ADD_MESSAGE",
         message: {
-          type: 'error',
-          message: error instanceof Error ? error.message : 'Upload failed',
+          type: "error",
+          message: error instanceof Error ? error.message : "Upload failed",
         },
       });
     }
@@ -200,11 +266,11 @@ export function useChat() {
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-    dispatch({ type: 'SET_STREAMING', isStreaming: false });
+    dispatch({ type: "SET_STREAMING", isStreaming: false });
   }, []);
 
   const setActiveLayer = useCallback((layer: string) => {
-    dispatch({ type: 'SET_ACTIVE_LAYER', layer });
+    dispatch({ type: "SET_ACTIVE_LAYER", layer });
   }, []);
 
   return {

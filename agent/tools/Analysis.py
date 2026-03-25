@@ -14,6 +14,19 @@ TEMP_DIR = Path(args.temp_dir)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_input(p: str) -> str:
+    """Resolve input path: try as-is, then under TEMP_DIR, then just filename."""
+    if Path(p).exists():
+        return p
+    t = TEMP_DIR / p
+    if t.exists():
+        return str(t)
+    t2 = TEMP_DIR / Path(p).name
+    if t2.exists():
+        return str(t2)
+    return p
+
+
 @mcp.tool(description='''
 Description
 
@@ -535,7 +548,7 @@ def getis_ord_gi_star(image_path: str, weight_matrix: list, output_path: str) ->
     from scipy.ndimage import convolve
     
     
-    ds = gdal.Open(image_path)
+    ds = gdal.Open(_resolve_input(image_path))
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
     img = ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
@@ -633,7 +646,7 @@ def analyze_hotspot_direction(hotspot_map_path: str) -> str:
     """
     import rasterio
     import numpy as np
-    with rasterio.open(hotspot_map_path) as src:
+    with rasterio.open(_resolve_input(hotspot_map_path)) as src:
         hotspot_data = src.read(1)
     
     # Find all hotspot locations (pixels with value 1)

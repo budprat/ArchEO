@@ -15,6 +15,19 @@ TEMP_DIR = Path(args.temp_dir)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_input(p: str) -> str:
+    """Resolve input path: try as-is, then under TEMP_DIR, then just filename."""
+    if Path(p).exists():
+        return p
+    t = TEMP_DIR / p
+    if t.exists():
+        return str(t)
+    t2 = TEMP_DIR / Path(p).name
+    if t2.exists():
+        return str(t2)
+    return p
+
+
 @mcp.tool(description="""
 Perform threshold-based segmentation on a single-band raster image.
 
@@ -54,7 +67,7 @@ def threshold_segmentation(input_image_path, threshold, output_path):
     import rasterio
     import numpy as np
 
-    with rasterio.open(input_image_path) as src:
+    with rasterio.open(_resolve_input(input_image_path)) as src:
         image = src.read(1)
         meta = src.meta.copy()
 
@@ -145,7 +158,7 @@ def count_above_threshold(file_path: str, threshold: float):
     """
     import numpy as np
     import rasterio
-    with rasterio.open(file_path) as src:
+    with rasterio.open(_resolve_input(file_path)) as src:
         x = src.read(1)
     x = np.asarray(x)
     # Count elements greater than threshold
@@ -195,7 +208,7 @@ def count_skeleton_contours(image_path):
     import numpy as np
     from skimage.morphology import skeletonize
     # Read image as grayscale
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(_resolve_input(image_path), cv2.IMREAD_GRAYSCALE)
 
     if img is None:
         raise FileNotFoundError(f"Failed to read image: {image_path}")
