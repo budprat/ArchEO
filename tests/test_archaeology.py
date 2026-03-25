@@ -912,3 +912,474 @@ class TestSystematicGridAnalysis:
         arr = ds.GetRasterBand(1).ReadAsArray()
         ds = None
         assert arr.shape == (128, 128)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for spectral index tests
+# ---------------------------------------------------------------------------
+
+def _synthetic_multiband_12(shape=(64, 64)) -> np.ndarray:
+    """Create synthetic 12-band data mimicking Sentinel-2 band structure."""
+    rng = np.random.default_rng(99)
+    bands = []
+    for b in range(12):
+        band = (rng.random(shape) * 200 + 50 + b * 10).astype(np.float32)
+        bands.append(band)
+    return np.stack(bands, axis=-1)
+
+
+# ---------------------------------------------------------------------------
+# Test: bare_soil_index
+# ---------------------------------------------------------------------------
+
+class TestBareSoilIndex:
+    @pytest.fixture(scope="class")
+    def multiband_12_tif(self, tmp_dir):
+        data = _synthetic_multiband_12((64, 64))
+        path = tmp_dir / "bsi_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    @pytest.fixture(scope="class")
+    def multiband_4_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=4)
+        path = tmp_dir / "bsi_4band_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, multiband_12_tif):
+        result = arch.bare_soil_index(multiband_12_tif, "bsi/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean", "bsi_positive_pct"):
+            assert key in result
+
+    def test_output_file_exists(self, multiband_12_tif):
+        result = arch.bare_soil_index(multiband_12_tif, "bsi/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_values_are_finite(self, multiband_12_tif):
+        result = arch.bare_soil_index(multiband_12_tif, "bsi/finite.tif")
+        assert np.isfinite(result["min"])
+        assert np.isfinite(result["max"])
+        assert np.isfinite(result["mean"])
+
+    def test_bsi_in_valid_range(self, multiband_12_tif):
+        """BSI is a normalized difference index, values should be in [-1, 1]."""
+        result = arch.bare_soil_index(multiband_12_tif, "bsi/range.tif")
+        assert result["min"] >= -1.01
+        assert result["max"] <= 1.01
+
+    def test_bsi_positive_pct_in_range(self, multiband_12_tif):
+        result = arch.bare_soil_index(multiband_12_tif, "bsi/pct.tif")
+        assert 0.0 <= result["bsi_positive_pct"] <= 100.0
+
+    def test_output_shape(self, multiband_12_tif):
+        from osgeo import gdal
+        result = arch.bare_soil_index(multiband_12_tif, "bsi/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_custom_band_indices(self, multiband_4_tif):
+        """Test with 4-band image using custom band indices."""
+        result = arch.bare_soil_index(
+            multiband_4_tif, "bsi/custom.tif",
+            red_band=1, blue_band=3, nir_band=4, swir1_band=2
+        )
+        assert Path(result["image_path"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test: soil_adjusted_vegetation_index
+# ---------------------------------------------------------------------------
+
+class TestSoilAdjustedVegetationIndex:
+    @pytest.fixture(scope="class")
+    def multiband_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=4)
+        path = tmp_dir / "savi_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, multiband_tif):
+        result = arch.soil_adjusted_vegetation_index(multiband_tif, "savi/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean"):
+            assert key in result
+
+    def test_output_file_exists(self, multiband_tif):
+        result = arch.soil_adjusted_vegetation_index(multiband_tif, "savi/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_values_are_finite(self, multiband_tif):
+        result = arch.soil_adjusted_vegetation_index(multiband_tif, "savi/finite.tif")
+        assert np.isfinite(result["min"])
+        assert np.isfinite(result["max"])
+        assert np.isfinite(result["mean"])
+
+    def test_output_shape(self, multiband_tif):
+        from osgeo import gdal
+        result = arch.soil_adjusted_vegetation_index(multiband_tif, "savi/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_custom_L_factor(self, multiband_tif):
+        """Test with hyper-arid L=1.0."""
+        result = arch.soil_adjusted_vegetation_index(
+            multiband_tif, "savi/arid.tif", L=1.0
+        )
+        assert Path(result["image_path"]).exists()
+
+    def test_different_L_produces_different_results(self, multiband_tif):
+        """Different L values should produce different SAVI means."""
+        r1 = arch.soil_adjusted_vegetation_index(multiband_tif, "savi/l05.tif", L=0.5)
+        r2 = arch.soil_adjusted_vegetation_index(multiband_tif, "savi/l10.tif", L=1.0)
+        # L values affect the result differently
+        assert r1["mean"] != r2["mean"]
+
+
+# ---------------------------------------------------------------------------
+# Test: moisture_index
+# ---------------------------------------------------------------------------
+
+class TestMoistureIndex:
+    @pytest.fixture(scope="class")
+    def multiband_12_tif(self, tmp_dir):
+        data = _synthetic_multiband_12((64, 64))
+        path = tmp_dir / "ndmi_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, multiband_12_tif):
+        result = arch.moisture_index(multiband_12_tif, "ndmi/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean", "dry_pct"):
+            assert key in result
+
+    def test_output_file_exists(self, multiband_12_tif):
+        result = arch.moisture_index(multiband_12_tif, "ndmi/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_ndmi_in_valid_range(self, multiband_12_tif):
+        """NDMI is a normalized difference, values in [-1, 1]."""
+        result = arch.moisture_index(multiband_12_tif, "ndmi/range.tif")
+        assert result["min"] >= -1.01
+        assert result["max"] <= 1.01
+
+    def test_dry_pct_in_range(self, multiband_12_tif):
+        result = arch.moisture_index(multiband_12_tif, "ndmi/dry.tif")
+        assert 0.0 <= result["dry_pct"] <= 100.0
+
+    def test_output_shape(self, multiband_12_tif):
+        from osgeo import gdal
+        result = arch.moisture_index(multiband_12_tif, "ndmi/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_custom_band_indices(self, multiband_12_tif):
+        result = arch.moisture_index(
+            multiband_12_tif, "ndmi/custom.tif", nir_band=4, swir1_band=6
+        )
+        assert Path(result["image_path"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test: iron_oxide_index
+# ---------------------------------------------------------------------------
+
+class TestIronOxideIndex:
+    @pytest.fixture(scope="class")
+    def rgb_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=3)
+        path = tmp_dir / "ioi_rgb_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    @pytest.fixture(scope="class")
+    def multiband_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=4)
+        path = tmp_dir / "ioi_multi_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, rgb_tif):
+        result = arch.iron_oxide_index(rgb_tif, "ioi/out.tif", red_band=1, blue_band=3)
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean", "high_iron_pct"):
+            assert key in result
+
+    def test_output_file_exists(self, rgb_tif):
+        result = arch.iron_oxide_index(rgb_tif, "ioi/exists.tif", red_band=1, blue_band=3)
+        assert Path(result["image_path"]).exists()
+
+    def test_ioi_in_valid_range(self, rgb_tif):
+        """IOI is a normalized difference, values in [-1, 1]."""
+        result = arch.iron_oxide_index(rgb_tif, "ioi/range.tif", red_band=1, blue_band=3)
+        assert result["min"] >= -1.01
+        assert result["max"] <= 1.01
+
+    def test_high_iron_pct_in_range(self, rgb_tif):
+        result = arch.iron_oxide_index(rgb_tif, "ioi/pct.tif", red_band=1, blue_band=3)
+        assert 0.0 <= result["high_iron_pct"] <= 100.0
+
+    def test_output_shape(self, rgb_tif):
+        from osgeo import gdal
+        result = arch.iron_oxide_index(rgb_tif, "ioi/shape.tif", red_band=1, blue_band=3)
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_works_with_multiband(self, multiband_tif):
+        """IOI should work with multi-band images using different band indices."""
+        result = arch.iron_oxide_index(
+            multiband_tif, "ioi/multi.tif", red_band=1, blue_band=3
+        )
+        assert Path(result["image_path"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test: clay_mineral_index
+# ---------------------------------------------------------------------------
+
+class TestClayMineralIndex:
+    @pytest.fixture(scope="class")
+    def multiband_12_tif(self, tmp_dir):
+        data = _synthetic_multiband_12((64, 64))
+        path = tmp_dir / "cmi_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, multiband_12_tif):
+        result = arch.clay_mineral_index(multiband_12_tif, "cmi/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean", "high_clay_pct"):
+            assert key in result
+
+    def test_output_file_exists(self, multiband_12_tif):
+        result = arch.clay_mineral_index(multiband_12_tif, "cmi/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_cmi_in_valid_range(self, multiband_12_tif):
+        """CMI is a normalized difference, values in [-1, 1]."""
+        result = arch.clay_mineral_index(multiband_12_tif, "cmi/range.tif")
+        assert result["min"] >= -1.01
+        assert result["max"] <= 1.01
+
+    def test_values_are_finite(self, multiband_12_tif):
+        result = arch.clay_mineral_index(multiband_12_tif, "cmi/finite.tif")
+        assert np.isfinite(result["min"])
+        assert np.isfinite(result["max"])
+        assert np.isfinite(result["mean"])
+
+    def test_output_shape(self, multiband_12_tif):
+        from osgeo import gdal
+        result = arch.clay_mineral_index(multiband_12_tif, "cmi/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_custom_band_indices(self, multiband_12_tif):
+        result = arch.clay_mineral_index(
+            multiband_12_tif, "cmi/custom.tif", swir1_band=5, swir2_band=6
+        )
+        assert Path(result["image_path"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test: brightness_index
+# ---------------------------------------------------------------------------
+
+class TestBrightnessIndex:
+    @pytest.fixture(scope="class")
+    def rgb_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=3)
+        path = tmp_dir / "bi_rgb_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    @pytest.fixture(scope="class")
+    def multiband_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=4)
+        path = tmp_dir / "bi_multi_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, rgb_tif):
+        result = arch.brightness_index(rgb_tif, "bi/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean"):
+            assert key in result
+
+    def test_output_file_exists(self, rgb_tif):
+        result = arch.brightness_index(rgb_tif, "bi/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_values_are_non_negative(self, rgb_tif):
+        """Brightness index should always be non-negative (sqrt of squares)."""
+        result = arch.brightness_index(rgb_tif, "bi/nonneg.tif")
+        assert result["min"] >= 0.0
+
+    def test_rgb_mode_output_shape(self, rgb_tif):
+        from osgeo import gdal
+        result = arch.brightness_index(rgb_tif, "bi/rgb_shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_multiband_mode(self, multiband_tif):
+        """4-band image should use Red+NIR formula."""
+        result = arch.brightness_index(
+            multiband_tif, "bi/multi.tif", red_band=1, nir_band=4
+        )
+        assert Path(result["image_path"]).exists()
+        assert result["min"] >= 0.0
+
+    def test_values_are_finite(self, rgb_tif):
+        result = arch.brightness_index(rgb_tif, "bi/finite.tif")
+        assert np.isfinite(result["min"])
+        assert np.isfinite(result["max"])
+        assert np.isfinite(result["mean"])
+
+
+# ---------------------------------------------------------------------------
+# Test: redness_index
+# ---------------------------------------------------------------------------
+
+class TestRednessIndex:
+    @pytest.fixture(scope="class")
+    def rgb_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=3)
+        path = tmp_dir / "ri_rgb_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, rgb_tif):
+        result = arch.redness_index(rgb_tif, "ri/out.tif")
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean"):
+            assert key in result
+
+    def test_output_file_exists(self, rgb_tif):
+        result = arch.redness_index(rgb_tif, "ri/exists.tif")
+        assert Path(result["image_path"]).exists()
+
+    def test_values_are_non_negative(self, rgb_tif):
+        """RI should be non-negative (Red^2 / positive denominator)."""
+        result = arch.redness_index(rgb_tif, "ri/nonneg.tif")
+        assert result["min"] >= 0.0
+
+    def test_values_are_finite(self, rgb_tif):
+        result = arch.redness_index(rgb_tif, "ri/finite.tif")
+        assert np.isfinite(result["min"])
+        assert np.isfinite(result["max"])
+        assert np.isfinite(result["mean"])
+
+    def test_output_shape(self, rgb_tif):
+        from osgeo import gdal
+        result = arch.redness_index(rgb_tif, "ri/shape.tif")
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_custom_band_indices(self, rgb_tif):
+        result = arch.redness_index(
+            rgb_tif, "ri/custom.tif", red_band=1, green_band=2, blue_band=3
+        )
+        assert Path(result["image_path"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Test: archaeological_composite_index
+# ---------------------------------------------------------------------------
+
+class TestArchaeologicalCompositeIndex:
+    @pytest.fixture(scope="class")
+    def multiband_4_tif(self, tmp_dir):
+        data = _synthetic_multiband((64, 64), n_bands=4)
+        path = tmp_dir / "aci_4band_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    @pytest.fixture(scope="class")
+    def multiband_12_tif(self, tmp_dir):
+        data = _synthetic_multiband_12((64, 64))
+        path = tmp_dir / "aci_12band_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_returns_dict_with_required_keys(self, multiband_4_tif):
+        result = arch.archaeological_composite_index(
+            multiband_4_tif, "aci/out.tif",
+            red_band=1, blue_band=3, green_band=2, nir_band=4
+        )
+        assert isinstance(result, dict)
+        for key in ("image_path", "min", "max", "mean", "high_potential_pct"):
+            assert key in result
+
+    def test_output_file_exists(self, multiband_4_tif):
+        result = arch.archaeological_composite_index(
+            multiband_4_tif, "aci/exists.tif",
+            red_band=1, blue_band=3, green_band=2, nir_band=4
+        )
+        assert Path(result["image_path"]).exists()
+
+    def test_aci_in_01_range(self, multiband_4_tif):
+        """ACI is normalized to [0, 1]."""
+        result = arch.archaeological_composite_index(
+            multiband_4_tif, "aci/range.tif",
+            red_band=1, blue_band=3, green_band=2, nir_band=4
+        )
+        assert result["min"] >= -0.01
+        assert result["max"] <= 1.01
+
+    def test_high_potential_pct_in_range(self, multiband_4_tif):
+        result = arch.archaeological_composite_index(
+            multiband_4_tif, "aci/pct.tif",
+            red_band=1, blue_band=3, green_band=2, nir_band=4
+        )
+        assert 0.0 <= result["high_potential_pct"] <= 100.0
+
+    def test_output_shape(self, multiband_4_tif):
+        from osgeo import gdal
+        result = arch.archaeological_composite_index(
+            multiband_4_tif, "aci/shape.tif",
+            red_band=1, blue_band=3, green_band=2, nir_band=4
+        )
+        ds = gdal.Open(result["image_path"])
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        assert arr.shape == (64, 64)
+
+    def test_full_formula_with_12_bands(self, multiband_12_tif):
+        """12-band image should use the full ACI formula with SWIR."""
+        result = arch.archaeological_composite_index(
+            multiband_12_tif, "aci/full.tif"
+        )
+        assert Path(result["image_path"]).exists()
+        assert 0.0 <= result["mean"] <= 1.0
+
+    def test_simplified_formula_without_swir(self, multiband_4_tif):
+        """4-band image should use simplified ACI formula."""
+        result = arch.archaeological_composite_index(
+            multiband_4_tif, "aci/simple.tif",
+            red_band=1, blue_band=3, green_band=2, nir_band=4
+        )
+        assert Path(result["image_path"]).exists()
+        assert 0.0 <= result["mean"] <= 1.0
+
+    def test_custom_weights(self, multiband_12_tif):
+        """Custom weights should be accepted."""
+        result = arch.archaeological_composite_index(
+            multiband_12_tif, "aci/weights.tif",
+            w_bsi=0.4, w_ndbi=0.2, w_ndvi=0.2, w_ioi=0.2
+        )
+        assert Path(result["image_path"]).exists()

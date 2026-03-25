@@ -87,18 +87,31 @@ async def startup_mcp() -> None:
     # Filter tools to only the most useful ones (reduces prompt token count)
     # Full 118 tools exceed Claude's 200K token limit
     PRIORITY_TOOLS = {
-        # Archaeology — core detection
-        "edge_detection_canny", "linear_feature_detection",
-        "geometric_pattern_analysis", "principal_component_analysis",
-        "adaptive_contrast_enhancement", "band_ratio_calculator",
-        "spectral_anomaly_detection", "texture_analysis_glcm",
-        "systematic_grid_analysis", "regularity_index",
-        "crop_mark_detector", "morphological_cleanup",
-        # Analysis
-        "getis_ord_gi_star", "threshold_segmentation",
-        "count_above_threshold",
-        # Statistics
+        # Archaeology — all 27 tools
+        "edge_detection_canny", "edge_detection_sobel",
+        "linear_feature_detection", "geometric_pattern_analysis",
+        "principal_component_analysis", "adaptive_contrast_enhancement",
+        "band_ratio_calculator", "spectral_anomaly_detection",
+        "texture_analysis_glcm", "systematic_grid_analysis",
+        "regularity_index", "crop_mark_detector",
+        "morphological_cleanup", "dem_hillshade",
+        "multi_directional_hillshade", "local_relief_model",
+        "sky_view_factor", "temporal_difference_map", "shape_statistics",
+        "bare_soil_index", "soil_adjusted_vegetation_index",
+        "moisture_index", "iron_oxide_index", "clay_mineral_index",
+        "brightness_index", "redness_index", "archaeological_composite_index",
+        # Analysis — spatial clustering & change detection
+        "getis_ord_gi_star", "analyze_hotspot_direction",
+        "threshold_segmentation", "count_above_threshold",
+        # Statistics — image stats useful for analysis
         "coefficient_of_variation", "mean",
+        "calc_single_image_std", "calc_single_image_min",
+        "calc_single_image_max", "calc_single_image_hotspot_tif",
+        "grayscale_to_colormap",
+        # Perception — segmentation & counting
+        "count_skeleton_contours",
+        # Index — vegetation/spectral indices (multi-band)
+        "calculate_ndvi",
     }
     _tools = [t for t in _tools if t.name in PRIORITY_TOOLS]
     logger.info(f"Filtered to {len(_tools)} priority tools (from full set)")
