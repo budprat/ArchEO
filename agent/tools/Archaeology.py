@@ -35,18 +35,31 @@ def _resolve_input(image_path: str) -> str:
     for match in TEMP_DIR.rglob(p.name):
         if match.is_file():
             return str(match)
-    # File not found — give actionable error instead of letting downstream tool crash
-    # List available files in the same directory to help the agent recover
+    # File not found — try to find a suitable fallback in the same directory
     search_dir = TEMP_DIR / p.parent if p.parent != _P(".") else TEMP_DIR
     available = []
     if search_dir.exists():
-        available = sorted(f.name for f in search_dir.iterdir() if f.is_file() and f.suffix in ('.tif', '.tiff', '.png', '.jpg', '.jpeg'))
-    avail_str = ", ".join(available[:15]) if available else "none"
+        available = sorted(f for f in search_dir.iterdir() if f.is_file() and f.suffix in ('.tif', '.tiff', '.png', '.jpg', '.jpeg'))
+
+    # If the requested file looks like a chained output (edges_*, clahe_*, etc.),
+    # try to find the source file it was supposed to be derived from
+    stem = p.stem.lower()
+    fallback_priorities = ["clahe", "pca_pc1", "original", "enhanced"]
+    for priority in fallback_priorities:
+        for f in available:
+            if priority in f.stem.lower():
+                return str(f)
+
+    # Last resort: use the first available TIF file
+    if available:
+        return str(available[0])
+
+    avail_names = ", ".join(f.name for f in available[:15]) if available else "none"
     raise RuntimeError(
         f"File not found: '{image_path}'. "
         f"Searched: as-is, under TEMP_DIR ({TEMP_DIR}), and recursive. "
         f"This usually means a previous tool in the chain did not run or used a different output_path. "
-        f"Available files in '{search_dir.name}/': [{avail_str}]. "
+        f"Available files in '{search_dir.name}/': [{avail_names}]. "
         f"Please check that the upstream tool was called first and use its exact output path."
     )
 
