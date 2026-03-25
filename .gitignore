@@ -66,3 +66,4 @@ frontend/out/
 openeo-deployment/data/openeo_ai.db
 openeo-deployment/venv/
 openeo-deployment/logs/
+*.tif
