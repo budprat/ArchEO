@@ -19,6 +19,7 @@ const PRESETS = [
 
 export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
   const [mounted, setMounted] = useState(false);
+  const [mapKey, setMapKey] = useState(0);
   const [lat, setLat] = useState(-10.8933);
   useEffect(() => setMounted(true), []);
   const [lon, setLon] = useState(-77.5203);
@@ -30,6 +31,7 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
   const handlePreset = (preset: (typeof PRESETS)[0]) => {
     setLat(preset.lat);
     setLon(preset.lon);
+    setMapKey(Date.now());
   };
 
   const handleDownload = async () => {
@@ -93,8 +95,8 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
         ))}
       </div>
 
-      {/* Coordinate inputs */}
-      <div className="flex gap-2">
+      {/* Coordinate inputs + Go button */}
+      <div className="flex gap-2 items-end">
         <div className="flex-1">
           <label className="text-xs text-muted-foreground">Latitude</label>
           <input
@@ -115,6 +117,13 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
             className="w-full rounded-md border bg-background px-2 py-1 text-sm"
           />
         </div>
+        <button
+          onClick={() => setMapKey(Date.now())}
+          className="rounded-md border bg-muted px-2.5 py-1 text-sm font-medium hover:bg-muted/80"
+          title="Go to coordinates"
+        >
+          Go
+        </button>
       </div>
 
       {/* Download button */}
@@ -149,7 +158,7 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
       {mounted && (
         <div className="rounded-md border overflow-hidden h-36">
           <iframe
-            key={`${lat}-${lon}`}
+            key={`${lat}-${lon}-${mapKey}`}
             src={`https://www.openstreetmap.org/export/embed.html?bbox=${lon - 0.02},${lat - 0.015},${lon + 0.02},${lat + 0.015}&layer=mapnik&marker=${lat},${lon}`}
             className="w-full h-full border-0"
             title="Location preview"
