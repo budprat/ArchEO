@@ -206,10 +206,32 @@ def _build_user_message(message: str, file_id: Optional[str]) -> HumanMessage:
     file_path = _get_original_file_path(file_id)
     path_instruction = ""
     if file_path:
+        # Detect band count to guide tool selection
+        band_info = ""
+        try:
+            from osgeo import gdal
+            ds = gdal.Open(file_path)
+            if ds:
+                n_bands = ds.RasterCount
+                ds = None
+                if n_bands <= 3:
+                    band_info = (
+                        f" This is a {n_bands}-band RGB image. "
+                        f"ONLY use RGB-compatible tools: iron_oxide_index, brightness_index, redness_index, "
+                        f"archaeological_composite_index, edge_detection_canny, edge_detection_sobel, "
+                        f"linear_feature_detection, geometric_pattern_analysis, texture_analysis_glcm, "
+                        f"regularity_index, systematic_grid_analysis, morphological_cleanup, shape_statistics. "
+                        f"Do NOT use BSI, CMI, NDMI, SAVI, PCA, NDVI, NDWI, NDBI, EVI, NBR, FVC, moisture_index, "
+                        f"clay_mineral_index, bare_soil_index, or any tool requiring NIR/SWIR bands."
+                    )
+                else:
+                    band_info = f" This is a {n_bands}-band image. All tools are available."
+        except Exception:
+            pass
         path_instruction = (
             f"\n\n[SYSTEM: The uploaded image is stored at: {file_path} — "
             f"use this exact path when calling any tool that requires an image_path or dem_path parameter. "
-            f"Result files should use relative output paths like 'edge_result.png'.]"
+            f"Result files should use relative output paths like 'edge_result.png'.{band_info}]"
         )
 
     b64 = encode_thumbnail(file_id)
