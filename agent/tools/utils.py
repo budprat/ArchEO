@@ -33,10 +33,9 @@ def resolve_band_index(ds, band_idx: int, band_name: str) -> int:
     Returns corrected band index (1-based).
     """
     n_bands = ds.RasterCount
-    if 1 <= band_idx <= n_bands:
-        return band_idx
 
-    # Band index out of range — try auto-mapping via band descriptions
+    # Always check if band descriptions exist — if they do, use name matching
+    # because band ordering may differ from Sentinel-2 defaults
     # Common name mappings: tool param name → possible band description values
     NAME_MAP = {
         "red": ["red", "b04", "b4"],
@@ -50,12 +49,18 @@ def resolve_band_index(ds, band_idx: int, band_name: str) -> int:
 
     search_names = NAME_MAP.get(band_name.lower(), [band_name.lower()])
 
-    for i in range(1, n_bands + 1):
-        desc = (ds.GetRasterBand(i).GetDescription() or "").lower().strip()
-        if desc in search_names:
-            return i
+    # Check if any band has descriptions
+    has_descriptions = any(ds.GetRasterBand(i).GetDescription() for i in range(1, n_bands + 1))
 
-    # No match found — return original (will fail with clear error)
+    if has_descriptions:
+        for i in range(1, n_bands + 1):
+            desc = (ds.GetRasterBand(i).GetDescription() or "").lower().strip()
+            if desc in search_names:
+                return i
+
+    # No match or no descriptions — return original if in range
+    if 1 <= band_idx <= n_bands:
+        return band_idx
     return band_idx
 
 
