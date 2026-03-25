@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface MapSelectorProps {
   onDownloadComplete: (
@@ -18,7 +18,9 @@ const PRESETS = [
 ];
 
 export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
+  const [mounted, setMounted] = useState(false);
   const [lat, setLat] = useState(-10.8933);
+  useEffect(() => setMounted(true), []);
   const [lon, setLon] = useState(-77.5203);
   const [status, setStatus] = useState<
     "idle" | "downloading" | "processing" | "done" | "error"
@@ -143,15 +145,17 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
         </p>
       )}
 
-      {/* Mini map preview using OSM embed */}
-      <div className="rounded-md border overflow-hidden h-36">
-        <iframe
-          key={`${lat}-${lon}`}
-          src={`https://www.openstreetmap.org/export/embed.html?bbox=${lon - 0.02},${lat - 0.015},${lon + 0.02},${lat + 0.015}&layer=mapnik&marker=${lat},${lon}`}
-          className="w-full h-full border-0"
-          title="Location preview"
-        />
-      </div>
+      {/* Mini map preview using OSM embed — client-only to avoid hydration mismatch */}
+      {mounted && (
+        <div className="rounded-md border overflow-hidden h-36">
+          <iframe
+            key={`${lat}-${lon}`}
+            src={`https://www.openstreetmap.org/export/embed.html?bbox=${lon - 0.02},${lat - 0.015},${lon + 0.02},${lat + 0.015}&layer=mapnik&marker=${lat},${lon}`}
+            className="w-full h-full border-0"
+            title="Location preview"
+          />
+        </div>
+      )}
     </div>
   );
 }
