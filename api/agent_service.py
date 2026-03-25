@@ -88,7 +88,7 @@ async def startup_mcp() -> None:
     # Full 118 tools exceed Claude's 200K token limit
     PRIORITY_TOOLS = {
         # Archaeology — core 20 tools (removed: sobel, multi_hillshade, LRM, SVF, temporal_diff, shape_stats)
-        "edge_detection_canny", "linear_feature_detection",
+        "edge_detection_canny", "edge_detection_sobel", "linear_feature_detection",
         "geometric_pattern_analysis", "principal_component_analysis",
         "adaptive_contrast_enhancement", "spectral_anomaly_detection",
         "texture_analysis_glcm", "systematic_grid_analysis",
