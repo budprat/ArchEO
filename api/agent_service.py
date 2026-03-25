@@ -126,8 +126,9 @@ async def startup_mcp() -> None:
         "calc_single_image_median",
         # Analysis — transect analysis
         "detect_change_points",
-        # Perception — feature measurement
-        "calculate_bbox_area",
+        # Perception — feature measurement & classification
+        "calculate_bbox_area", "centroid_distance_extremes",
+        "ChangeOS", "RemoteCLIP",
     }
     _tools = [t for t in _tools if t.name in PRIORITY_TOOLS]
     logger.info(f"Filtered to {len(_tools)} priority tools (from full set)")
