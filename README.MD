@@ -5,12 +5,11 @@
 
 **AI-Powered Archaeological Analysis Platform**
 
-An adapted version of [Earth-Agent](https://arxiv.org/pdf/2509.23141) (ICLR 2026) with **19 additional archaeology-specific tools** and an interactive web interface for detecting geoglyphs, ancient structures, and archaeological features in satellite imagery.
+An adapted version of [Earth-Agent](https://github.com/opendatalab/Earth-Agent) with **19 additional archaeology-specific tools** and an interactive web interface for detecting geoglyphs, ancient structures, and archaeological features in satellite imagery.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![arXiv](https://img.shields.io/badge/Based_on-Earth--Agent_(ICLR_2026)-AD1C18.svg?logo=arXiv)](https://arxiv.org/pdf/2509.23141)
 
 </div>
 
@@ -18,7 +17,7 @@ An adapted version of [Earth-Agent](https://arxiv.org/pdf/2509.23141) (ICLR 2026
 
 ## What is ArchEO-Agent?
 
-ArchEO-Agent adapts the [Earth-Agent](https://github.com/opendatalab/Earth-Agent) framework for archaeological remote sensing. It adds **19 new archaeology-specific tools** to Earth-Agent's existing 104 tools (across 5 MCP servers: Index, Inversion, Perception, Analysis, Statistics), and wraps everything in a chat-based web interface powered by Claude AI.
+ArchEO-Agent adapts the [Earth-Agent](https://github.com/opendatalab/Earth-Agent) framework for archaeological remote sensing. It adds **19 new archaeology-specific tools** to the existing 104 tools (across 5 MCP servers: Index, Inversion, Perception, Analysis, Statistics), and wraps everything in a chat-based web interface powered by Claude AI.
 
 Upload a GeoTIFF or satellite image, ask questions in natural language, and the agent autonomously selects and chains tools to find hidden features like the Nazca Lines, buried walls, ancient roads, and crop marks.
 
@@ -230,18 +229,7 @@ After uploading a satellite image of an archaeological site:
 
 ## Acknowledgments
 
-ArchEO-Agent is built on top of [Earth-Agent](https://github.com/opendatalab/Earth-Agent) by Shanghai AI Laboratory & Sun Yat-sen University (ICLR 2026). The original 104 MCP tools and ReAct agent architecture are from their work. ArchEO-Agent adds the archaeology tool server, web interface, and parameter tuning for Peruvian site detection.
-
-## Citation
-
-```bibtex
-@article{feng2025earth,
-  title={Earth-Agent: Unlocking the Full Landscape of Earth Observation with Agents},
-  author={Feng, Peilin and Lv, Zhutao and Ye, Junyan and Wang, Xiaolei and Huo, Xinjie and Yu, Jinhua and Xu, Wanghan and Zhang, Wenlong and Bai, Lei and He, Conghui and others},
-  journal={arXiv preprint arXiv:2509.23141},
-  year={2025}
-}
-```
+Built on top of [Earth-Agent](https://github.com/opendatalab/Earth-Agent) by Shanghai AI Laboratory & Sun Yat-sen University. The original 104 MCP tools and ReAct agent architecture are from their work.
 
 ## License
 
