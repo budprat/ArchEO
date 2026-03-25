@@ -143,12 +143,13 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
         </p>
       )}
 
-      {/* Mini map preview */}
-      <div className="rounded-md border overflow-hidden h-32">
-        <img
-          src={`https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=12&size=400x150&maptype=mapnik&markers=${lat},${lon},red-pushpin`}
-          alt="Location preview"
-          className="w-full h-full object-cover"
+      {/* Mini map preview using OSM embed */}
+      <div className="rounded-md border overflow-hidden h-36">
+        <iframe
+          key={`${lat}-${lon}`}
+          src={`https://www.openstreetmap.org/export/embed.html?bbox=${lon - 0.02},${lat - 0.015},${lon + 0.02},${lat + 0.015}&layer=mapnik&marker=${lat},${lon}`}
+          className="w-full h-full border-0"
+          title="Location preview"
         />
       </div>
     </div>
