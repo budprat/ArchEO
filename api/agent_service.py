@@ -258,6 +258,7 @@ async def stream_agent_response(
     all_messages = lc_history + [user_msg]
 
     final_text_parts: list[str] = []
+    _last_event_was_tool = False  # Track if we're in final answer phase
 
     try:
         async for event in agent_to_use.astream_events(
@@ -271,17 +272,20 @@ async def stream_agent_response(
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     content = chunk.content
+                    # Use "agent" event type for final answer (after tools ran)
+                    sse_type = "agent" if _last_event_was_tool else "thinking"
                     if isinstance(content, list):
                         # Multimodal chunks
                         for block in content:
                             if isinstance(block, dict) and block.get("type") == "text":
                                 final_text_parts.append(block["text"])
-                                yield _sse("thinking", {"text": block["text"]})
+                                yield _sse(sse_type, {"text": block["text"]})
                     else:
                         final_text_parts.append(str(content))
-                        yield _sse("thinking", {"text": str(content)})
+                        yield _sse(sse_type, {"text": str(content)})
 
             elif kind == "on_tool_start":
+                _last_event_was_tool = False  # Reset — we're in tool execution
                 tool_name = event.get("name", "unknown_tool")
                 tool_input = event.get("data", {}).get("input", {})
                 yield _sse("tool_call", {"tool": tool_name, "input": tool_input})
@@ -332,6 +336,7 @@ async def stream_agent_response(
                         "result_images": result_images,
                     },
                 )
+                _last_event_was_tool = True  # Next LLM output is the final answer
 
     except Exception as exc:
         logger.exception("Agent stream error")
@@ -482,10 +487,20 @@ def _tif_to_png(src: Path, dest: Path) -> None:
         arr = ds.GetRasterBand(1).ReadAsArray().astype(np.float64)
     ds = None
 
-    # Normalize to 0-255
-    vmin, vmax = np.nanmin(arr), np.nanmax(arr)
+    # Normalize to 0-255 using percentile stretch (2%-98%) for better contrast
+    finite = arr[np.isfinite(arr)] if arr.ndim == 2 else arr[np.isfinite(arr).all(axis=-1)]
+    if finite.size > 0:
+        vmin = np.percentile(finite, 2)
+        vmax = np.percentile(finite, 98)
+    else:
+        vmin, vmax = np.nanmin(arr), np.nanmax(arr)
     if vmax > vmin:
         arr = (arr - vmin) / (vmax - vmin) * 255
     arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+    # Apply colormap for single-band images (much better than grayscale)
+    if arr.ndim == 2:
+        import cv2 as _cv2
+        arr = _cv2.applyColorMap(arr, _cv2.COLORMAP_INFERNO)
 
     cv2.imwrite(str(dest), arr)

@@ -38,6 +38,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, messages };
     }
 
+    case "UPDATE_LAST_AGENT": {
+      const messages = [...state.messages];
+      const lastIdx = messages.length - 1;
+      if (lastIdx >= 0 && messages[lastIdx].type === "agent") {
+        messages[lastIdx] = {
+          type: "agent",
+          content: messages[lastIdx].content + action.content,
+        };
+      } else {
+        messages.push({ type: "agent", content: action.content });
+      }
+      return { ...state, messages };
+    }
+
     case "SET_STREAMING":
       return { ...state, isStreaming: action.isStreaming };
 
@@ -176,22 +190,32 @@ export function useChat(apiKey?: string) {
               break;
             }
 
-            case "agent":
-            case "message": {
-              const agentContent =
+            case "agent": {
+              // Final answer streamed as chunks — accumulate into agent message
+              const agentChunk =
                 (data.text as string) ?? (data.content as string) ?? "";
-              if (agentContent) {
+              if (agentChunk) {
+                lastThinkingRef.current += agentChunk;
+                dispatch({ type: "UPDATE_LAST_AGENT", content: agentChunk });
+              }
+              break;
+            }
+
+            case "message": {
+              const msgContent =
+                (data.text as string) ?? (data.content as string) ?? "";
+              if (msgContent) {
                 dispatch({
                   type: "ADD_MESSAGE",
                   message: {
                     type: "agent",
-                    content: agentContent,
+                    content: msgContent,
                     images: data.images as string[] | undefined,
                   },
                 });
                 historyRef.current = [
                   ...historyRef.current,
-                  { role: "assistant", content: agentContent },
+                  { role: "assistant", content: msgContent },
                 ];
               }
               break;

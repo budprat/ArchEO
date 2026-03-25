@@ -46,6 +46,7 @@ export interface HistoryEntry {
 export type AppAction =
   | { type: "ADD_MESSAGE"; message: ChatMessage }
   | { type: "UPDATE_LAST_THINKING"; content: string }
+  | { type: "UPDATE_LAST_AGENT"; content: string }
   | { type: "SET_STREAMING"; isStreaming: boolean }
   | { type: "SET_UPLOADED_FILE"; file: UploadedFile }
   | { type: "ADD_RESULT_IMAGE"; image: ResultImage }
