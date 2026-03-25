@@ -291,9 +291,22 @@ async def stream_agent_response(
                 for fname in raw_matches:
                     png_name = re.sub(r'\.(tif|tiff)$', '.png', fname)
                     if png_name not in result_images and results_dir:
-                        # Check if the PNG exists in results dir
+                        # Check if the PNG already exists in results dir
                         if (results_dir / png_name).exists():
                             result_images.append(png_name)
+                        # Or try to convert the TIF from MCP_TEMP_DIR now
+                        elif MCP_TEMP_DIR.exists():
+                            tif_src = MCP_TEMP_DIR / fname
+                            if tif_src.exists() and fname.lower().endswith(('.tif', '.tiff')):
+                                try:
+                                    _tif_to_png(tif_src, results_dir / png_name)
+                                    result_images.append(png_name)
+                                except Exception:
+                                    pass
+                            # Also check if it's already a PNG in temp
+                            elif (MCP_TEMP_DIR / png_name).exists():
+                                shutil.copy2(MCP_TEMP_DIR / png_name, results_dir / png_name)
+                                result_images.append(png_name)
 
                 # Deduplicate
                 result_images = list(dict.fromkeys(result_images))
@@ -409,7 +422,9 @@ def _copy_mcp_results(results_dir: Path, tool_name: str) -> list[str]:
     if not MCP_TEMP_DIR.exists():
         return copied
 
-    for src in MCP_TEMP_DIR.iterdir():
+    for src in MCP_TEMP_DIR.rglob("*"):
+        if not src.is_file():
+            continue
         if src.suffix.lower() in {".png", ".jpg", ".jpeg"}:
             dest = results_dir / src.name
             if not dest.exists():

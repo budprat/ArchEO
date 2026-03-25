@@ -28,6 +28,10 @@ def _resolve_input(image_path: str) -> str:
     under_temp_name = TEMP_DIR / p.name
     if under_temp_name.exists():
         return str(under_temp_name)
+    # Search subdirectories of TEMP_DIR (tools may create per-analysis folders)
+    for match in TEMP_DIR.rglob(p.name):
+        if match.is_file():
+            return str(match)
     # Return original — let the tool raise its own error
     return image_path
 

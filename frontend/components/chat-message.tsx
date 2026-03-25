@@ -91,11 +91,26 @@ export function ChatMessage({ message, onImageClick }: ChatMessageProps) {
       );
 
     case "tool_result": {
-      // Extract image filename from result text (paths like /.../_mcp_temp/file.tif or /.../_mcp_temp/file.png)
-      const imgMatch =
-        message.result?.match(/\/([^/]+)\.(tif|tiff|png|jpg|jpeg)\s*$/i) ||
-        message.result?.match(/\/([^/]+)\.(tif|tiff|png|jpg|jpeg)/i);
-      const resultImgName = imgMatch ? `${imgMatch[1]}.png` : message.imageId;
+      // Collect all viewable images from imageId (first) + imageIds (all)
+      const allImageIds: string[] = [];
+      if (message.imageIds && message.imageIds.length > 0) {
+        allImageIds.push(...message.imageIds);
+      } else if (message.imageId) {
+        allImageIds.push(message.imageId);
+      }
+
+      // Also extract image filenames from result text as fallback
+      if (allImageIds.length === 0 && message.result) {
+        const matches = message.result.match(
+          /([a-zA-Z0-9_-]+)\.(tif|tiff|png|jpg|jpeg)/gi,
+        );
+        if (matches) {
+          for (const m of matches) {
+            const pngName = m.replace(/\.(tif|tiff)$/i, ".png");
+            if (!allImageIds.includes(pngName)) allImageIds.push(pngName);
+          }
+        }
+      }
 
       return (
         <div className="flex justify-start">
@@ -109,14 +124,19 @@ export function ChatMessage({ message, onImageClick }: ChatMessageProps) {
             <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-4">
               {formatToolResult(message.result)}
             </p>
-            {resultImgName && onImageClick && (
-              <button
-                className="mt-2 text-xs text-primary underline-offset-2 hover:underline"
-                onClick={() => onImageClick(resultImgName)}
-                type="button"
-              >
-                View result image
-              </button>
+            {allImageIds.length > 0 && onImageClick && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {allImageIds.map((imgId) => (
+                  <button
+                    key={imgId}
+                    className="text-xs text-primary underline-offset-2 hover:underline"
+                    onClick={() => onImageClick(imgId)}
+                    type="button"
+                  >
+                    View {imgId}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>

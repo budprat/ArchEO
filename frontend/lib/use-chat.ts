@@ -138,6 +138,7 @@ export function useChat(apiKey?: string) {
                 tool: toolName,
                 result: toolOutput,
                 imageId: imageId,
+                imageIds: resultImages.length > 0 ? resultImages : undefined,
               };
               dispatch({ type: "ADD_MESSAGE", message: toolResultMsg });
 
@@ -145,15 +146,15 @@ export function useChat(apiKey?: string) {
               // Use result_images from backend, or extract filenames from output text
               let imagesToRegister = resultImages;
               if (imagesToRegister.length === 0 && toolOutput) {
-                // Extract .tif/.png filenames from output text paths
+                // Extract .tif/.png filenames from output text (with or without path prefix)
                 const matches = toolOutput.match(
-                  /\/([^/\s]+)\.(tif|tiff|png|jpg|jpeg)/gi,
+                  /([a-zA-Z0-9_-]+)\.(tif|tiff|png|jpg|jpeg)/gi,
                 );
                 if (matches) {
                   imagesToRegister = [
                     ...new Set(
                       matches.map((m: string) => {
-                        const name = m.split("/").pop() ?? "";
+                        const name = m.split("/").pop() ?? m;
                         // Convert .tif to .png (backend converts TIF→PNG)
                         return name.replace(/\.(tif|tiff)$/i, ".png");
                       }),
