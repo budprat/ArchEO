@@ -1895,10 +1895,8 @@ NDVI is unreliable due to sparse vegetation and exposed soil.
 
 Parameters:
 - image_path (str): Path to the input multi-band raster (any GDAL-supported format).
-- nir_band (int, optional): 1-based index of the NIR band. Default = 4 (4-band image).
-                            Use 8 for Sentinel-2.
-- red_band (int, optional): 1-based index of the Red band. Default = 3 (4-band image).
-                            Use 4 for Sentinel-2.
+- nir_band (int, optional): 1-based index of the NIR band. Default = 8 (Sentinel-2).
+- red_band (int, optional): 1-based index of the Red band. Default = 4 (Sentinel-2).
 - L (float, optional): Soil brightness correction factor. Default = 0.5.
                         Use 1.0 for hyper-arid regions, 0.25 for dense vegetation.
 - output_path (str): Relative file path to save the SAVI output (e.g., "results/savi.tif").
@@ -1914,8 +1912,8 @@ Returns:
 def soil_adjusted_vegetation_index(
     image_path: str,
     output_path: str,
-    nir_band: int = 4,
-    red_band: int = 3,
+    nir_band: int = 8,
+    red_band: int = 4,
     L: float = 0.5,
 ) -> dict:
     """
@@ -1924,8 +1922,8 @@ def soil_adjusted_vegetation_index(
     Parameters:
         image_path (str): Path to the input raster image.
         output_path (str): Relative path (within TEMP_DIR) to write the SAVI GeoTIFF.
-        nir_band (int, default=4): 1-based band index for NIR.
-        red_band (int, default=3): 1-based band index for Red.
+        nir_band (int, default=8): 1-based band index for NIR (Sentinel-2).
+        red_band (int, default=4): 1-based band index for Red (Sentinel-2).
         L (float, default=0.5): Soil brightness correction factor.
 
     Returns:
@@ -2358,12 +2356,9 @@ activity such as hearths, kilns, and ancient settlement layers.
 
 Parameters:
 - image_path (str): Path to the input image (any GDAL-supported format).
-- red_band (int, optional): 1-based index of the Red band. Default = 1 (RGB).
-                            Use 4 for Sentinel-2.
-- green_band (int, optional): 1-based index of the Green band. Default = 2 (RGB).
-                              Use 3 for Sentinel-2.
-- blue_band (int, optional): 1-based index of the Blue band. Default = 3 (RGB).
-                             Use 2 for Sentinel-2.
+- red_band (int, optional): 1-based index of the Red band. Default = 4 (Sentinel-2).
+- green_band (int, optional): 1-based index of the Green band. Default = 3 (Sentinel-2).
+- blue_band (int, optional): 1-based index of the Blue band. Default = 2 (Sentinel-2).
 - output_path (str): Relative file path to save the RI output (e.g., "results/ri.tif").
 
 Returns:
@@ -2377,9 +2372,9 @@ Returns:
 def redness_index(
     image_path: str,
     output_path: str,
-    red_band: int = 1,
-    green_band: int = 2,
-    blue_band: int = 3,
+    red_band: int = 4,
+    green_band: int = 3,
+    blue_band: int = 2,
 ) -> dict:
     """
     Compute RI = Red^2 / (Blue * Green^3 + epsilon).
@@ -2387,9 +2382,9 @@ def redness_index(
     Parameters:
         image_path (str): Path to the input raster image.
         output_path (str): Relative path (within TEMP_DIR) to write the RI GeoTIFF.
-        red_band (int, default=1): 1-based band index for Red.
-        green_band (int, default=2): 1-based band index for Green.
-        blue_band (int, default=3): 1-based band index for Blue.
+        red_band (int, default=4): 1-based band index for Red (Sentinel-2).
+        green_band (int, default=3): 1-based band index for Green (Sentinel-2).
+        blue_band (int, default=2): 1-based band index for Blue (Sentinel-2).
 
     Returns:
         dict with keys:

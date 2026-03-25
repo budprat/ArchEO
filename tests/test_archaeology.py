@@ -997,7 +997,7 @@ class TestBareSoilIndex:
 class TestSoilAdjustedVegetationIndex:
     @pytest.fixture(scope="class")
     def multiband_tif(self, tmp_dir):
-        data = _synthetic_multiband((64, 64), n_bands=4)
+        data = _synthetic_multiband_12((64, 64))
         path = tmp_dir / "savi_input.tif"
         _write_multiband_geotiff(data, str(path))
         return str(path)
@@ -1312,36 +1312,43 @@ class TestBrightnessIndex:
 
 class TestRednessIndex:
     @pytest.fixture(scope="class")
+    def multiband_tif(self, tmp_dir):
+        data = _synthetic_multiband_12((64, 64))
+        path = tmp_dir / "ri_s2_input.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    @pytest.fixture(scope="class")
     def rgb_tif(self, tmp_dir):
         data = _synthetic_multiband((64, 64), n_bands=3)
         path = tmp_dir / "ri_rgb_input.tif"
         _write_multiband_geotiff(data, str(path))
         return str(path)
 
-    def test_returns_dict_with_required_keys(self, rgb_tif):
-        result = arch.redness_index(rgb_tif, "ri/out.tif")
+    def test_returns_dict_with_required_keys(self, multiband_tif):
+        result = arch.redness_index(multiband_tif, "ri/out.tif")
         assert isinstance(result, dict)
         for key in ("image_path", "min", "max", "mean"):
             assert key in result
 
-    def test_output_file_exists(self, rgb_tif):
-        result = arch.redness_index(rgb_tif, "ri/exists.tif")
+    def test_output_file_exists(self, multiband_tif):
+        result = arch.redness_index(multiband_tif, "ri/exists.tif")
         assert Path(result["image_path"]).exists()
 
-    def test_values_are_non_negative(self, rgb_tif):
+    def test_values_are_non_negative(self, multiband_tif):
         """RI should be non-negative (Red^2 / positive denominator)."""
-        result = arch.redness_index(rgb_tif, "ri/nonneg.tif")
+        result = arch.redness_index(multiband_tif, "ri/nonneg.tif")
         assert result["min"] >= 0.0
 
-    def test_values_are_finite(self, rgb_tif):
-        result = arch.redness_index(rgb_tif, "ri/finite.tif")
+    def test_values_are_finite(self, multiband_tif):
+        result = arch.redness_index(multiband_tif, "ri/finite.tif")
         assert np.isfinite(result["min"])
         assert np.isfinite(result["max"])
         assert np.isfinite(result["mean"])
 
-    def test_output_shape(self, rgb_tif):
+    def test_output_shape(self, multiband_tif):
         from osgeo import gdal
-        result = arch.redness_index(rgb_tif, "ri/shape.tif")
+        result = arch.redness_index(multiband_tif, "ri/shape.tif")
         ds = gdal.Open(result["image_path"])
         arr = ds.GetRasterBand(1).ReadAsArray()
         ds = None
