@@ -111,7 +111,10 @@ async def startup_mcp() -> None:
         # Perception — segmentation & counting
         "count_skeleton_contours",
         # Index — vegetation/spectral indices (multi-band)
-        "calculate_ndvi",
+        "calculate_ndvi", "calculate_ndwi", "calculate_ndbi", "calculate_evi",
+        # Statistics — post-index analysis
+        "calculate_tif_difference", "calculate_intersection_percentage",
+        "get_percentile_value_from_image", "calculate_area", "subtract",
     }
     _tools = [t for t in _tools if t.name in PRIORITY_TOOLS]
     logger.info(f"Filtered to {len(_tools)} priority tools (from full set)")
