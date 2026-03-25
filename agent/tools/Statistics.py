@@ -14,6 +14,19 @@ TEMP_DIR = Path(args.temp_dir)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_input(p: str) -> str:
+    """Resolve input path: try as-is, then under TEMP_DIR, then just filename."""
+    if Path(p).exists():
+        return p
+    t = TEMP_DIR / p
+    if t.exists():
+        return str(t)
+    t2 = TEMP_DIR / Path(p).name
+    if t2.exists():
+        return str(t2)
+    return p
+
+
 @mcp.tool(description='''
 Description:
 Compute the Coefficient of Variation (CV) for a dataset. 
@@ -726,7 +739,7 @@ def calc_single_image_hotspot_tif(file_path: str, threshold: float, output_path:
     import numpy as np
     from osgeo import gdal
     
-    ds = gdal.Open(file_path)
+    ds = gdal.Open(_resolve_input(file_path))
     if ds is None:
         raise RuntimeError(f"Failed to open image: {file_path}")
     
@@ -1416,7 +1429,7 @@ def create_fire_increase_map(change_image_path: str, output_path: str, threshold
     fire_increase_map = (change_img >= threshold).astype(np.uint8)
     
     
-    with rasterio.open(change_image_path) as src:
+    with rasterio.open(_resolve_input(change_image_path)) as src:
         profile = src.profile
         profile.update(dtype=rasterio.uint8, compress='lzw', nodata=255)
         
@@ -1505,7 +1518,7 @@ def identify_fire_prone_areas(file_path: str, output_path: str, threshold_percen
     os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
     
     # Save fire-prone areas to file
-    with rasterio.open(file_path) as src:
+    with rasterio.open(_resolve_input(file_path)) as src:
         # Copy profile from input file
         output_profile = src.profile.copy()
         output_profile.update(dtype=rasterio.uint8, compress='lzw', nodata=255)
@@ -1566,7 +1579,7 @@ def get_percentile_value_from_image(image_path, percentile):
     if not (1 <= percentile <= 100):
         raise ValueError("Percentile must be between 1 and 100.")
 
-    with rasterio.open(image_path) as src:
+    with rasterio.open(_resolve_input(image_path)) as src:
         image = src.read(1)
         dtype = image.dtype
 
@@ -1648,11 +1661,11 @@ def image_division_mean(image_path1, image_path2=None, band1=1, band2=2):
     import rasterio
     import numpy as np
     if image_path2 is None:
-        with rasterio.open(image_path1) as src:
+        with rasterio.open(_resolve_input(image_path1)) as src:
             array1 = src.read(band1).astype(np.float32)
             array2 = src.read(band2).astype(np.float32)
     else:
-        with rasterio.open(image_path1) as src1, rasterio.open(image_path2) as src2:
+        with rasterio.open(_resolve_input(image_path1)) as src1, rasterio.open(_resolve_input(image_path2)) as src2:
             array1 = src1.read(1).astype(np.float32)
             array2 = src2.read(1).astype(np.float32)
 
@@ -1718,12 +1731,12 @@ def calculate_intersection_percentage(path1, threshold1, path2, threshold2):
     import rasterio
     import numpy as np
     # Read first image
-    with rasterio.open(path1) as src1:
+    with rasterio.open(_resolve_input(path1)) as src1:
         data1 = src1.read(1).astype(np.float32)
         mask1 = src1.read_masks(1) > 0  # valid data mask
 
     # Read second image
-    with rasterio.open(path2) as src2:
+    with rasterio.open(_resolve_input(path2)) as src2:
         data2 = src2.read(1).astype(np.float32)
         mask2 = src2.read_masks(1) > 0  # valid data mask
 
@@ -1894,7 +1907,7 @@ def calc_batch_image_mean_max_min(file_list: list[str], uint8: bool = False) -> 
     mins = []
 
     for file_path in file_list:
-        with rasterio.open(file_path) as src:
+        with rasterio.open(_resolve_input(file_path)) as src:
             img = src.read(1).astype(np.float32)
             img = img[np.isfinite(img)]  # remove NaN or inf
 
@@ -1983,7 +1996,7 @@ def calc_batch_image_mean_threshold(
 
     for file_path in file_list:
         try:
-            with rasterio.open(file_path) as src:
+            with rasterio.open(_resolve_input(file_path)) as src:
                 if band_index >= src.count:
                     print(f"Warning: {file_path} does not contain band {band_index + 1}. Skipped.")
                     continue
@@ -2078,7 +2091,7 @@ def calculate_multi_band_threshold_ratio(
     """
     import rasterio
     import numpy as np
-    with rasterio.open(image_path) as src:
+    with rasterio.open(_resolve_input(image_path)) as src:
         # Read required bands
         bands = []
         for band_index, _, _ in band_conditions:
@@ -2165,7 +2178,7 @@ def count_pixels_satisfying_conditions(
     import rasterio
     import numpy as np
 
-    with rasterio.open(image_path) as src:
+    with rasterio.open(_resolve_input(image_path)) as src:
         # Read required bands
         bands = []
         for band_index, _, _ in band_conditions:
@@ -2271,7 +2284,7 @@ def count_images_exceeding_threshold_ratio(
     count_exceeding = 0
 
     for path in image_paths:
-        with rasterio.open(path) as src:
+        with rasterio.open(_resolve_input(path)) as src:
             band = src.read(1).astype(np.float32)
             nodata = src.nodata
             if nodata is not None:
@@ -2387,7 +2400,7 @@ def average_ratio_exceeding_threshold(
 
     for path in image_paths:
         try:
-            with rasterio.open(path) as src:
+            with rasterio.open(_resolve_input(path)) as src:
                 band = src.read(1).astype(np.float32)
                 nodata = src.nodata
                 if nodata is not None:
@@ -2503,7 +2516,7 @@ def count_images_exceeding_mean_multiplier(
 
     # First pass: compute mean of each image
     for path in image_paths:
-        with rasterio.open(path) as src:
+        with rasterio.open(_resolve_input(path)) as src:
             band = src.read(1).astype(np.float32)
             nodata = src.nodata
             if nodata is not None:
@@ -2618,7 +2631,7 @@ def calculate_band_mean_by_condition(
     import rasterio
     import numpy as np
 
-    with rasterio.open(image_path) as src:
+    with rasterio.open(_resolve_input(image_path)) as src:
         condition_band = src.read(condition_band_index + 1).astype(np.float32)
         target_band = src.read(target_band_index + 1).astype(np.float32)
         nodata = src.nodata
@@ -2700,7 +2713,7 @@ def calc_threshold_value_mean(
         file1 = dict1[key]
         file2 = dict2[key]
 
-        with rasterio.open(file1) as ds1, rasterio.open(file2) as ds2:
+        with rasterio.open(_resolve_input(file1)) as ds1, rasterio.open(_resolve_input(file2)) as ds2:
             data1 = ds1.read(1).astype(np.float32)
             data2 = ds2.read(1).astype(np.float32)
 
@@ -2749,7 +2762,7 @@ def calculate_tif_average(file_list: list[str], output_path: str, uint8: bool = 
     os.makedirs(output_path.parent, exist_ok=True)
     
     # Read first file to get basic info
-    ds = gdal.Open(file_list[0])
+    ds = gdal.Open(_resolve_input(file_list[0]))
     bands = ds.RasterCount
     rows = ds.RasterYSize
     cols = ds.RasterXSize
@@ -2773,7 +2786,7 @@ def calculate_tif_average(file_list: list[str], output_path: str, uint8: bool = 
     
     # Read and accumulate remaining images
     for file_path in file_list[1:]:
-        ds = gdal.Open(file_path)
+        ds = gdal.Open(_resolve_input(file_path))
         if bands == 1:
             img = ds.GetRasterBand(1).ReadAsArray()
         else:
@@ -2857,7 +2870,7 @@ def calculate_tif_difference(image_a_path: str, image_b_path: str, output_path: 
     os.makedirs(output_path.parent, exist_ok=True)
     
     # Read first image (image_a)
-    ds_a = gdal.Open(image_a_path)
+    ds_a = gdal.Open(_resolve_input(image_a_path))
     if ds_a is None:
         raise RuntimeError(f"Failed to open {image_a_path}")
     
@@ -2875,7 +2888,7 @@ def calculate_tif_difference(image_a_path: str, image_b_path: str, output_path: 
     ds_a = None
     
     # Read second image (image_b)
-    ds_b = gdal.Open(image_b_path)
+    ds_b = gdal.Open(_resolve_input(image_b_path))
     if ds_b is None:
         raise RuntimeError(f"Failed to open {image_b_path}")
     
@@ -2976,7 +2989,7 @@ def subtract(img1_path: str, img2_path: str, output_path: str) -> str:
     output_path = TEMP_DIR / output_path
     os.makedirs(output_path.parent, exist_ok=True)
     
-    with rasterio.open(img1_path) as src:
+    with rasterio.open(_resolve_input(img1_path)) as src:
         profile = src.profile
         profile.update(dtype=rasterio.float32, compress='lzw')
         
@@ -3034,7 +3047,7 @@ def grayscale_to_colormap(image_path: str, save_name: str, cmap_name: str = 'vir
     import cv2
     
     # Read grayscale image
-    ds = gdal.Open(image_path)
+    ds = gdal.Open(_resolve_input(image_path))
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
     gray = ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
@@ -3128,7 +3141,7 @@ def radiometric_correction_sr(input_band_path, output_path):
     import numpy as np
     
     # Open the input band file
-    with rasterio.open(input_band_path) as band_src:
+    with rasterio.open(_resolve_input(input_band_path)) as band_src:
         band_array = band_src.read(1)  # Read the first band
         band_profile = band_src.profile  # Get the metadata profile
 
@@ -3184,11 +3197,11 @@ def apply_cloud_mask(sr_band_path, qa_pixel_path, output_path):
 
     cloud_mask_bits = 1 + 2 + 4 + 8 + 16  # 0b11111 = 31
     os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-    with rasterio.open(sr_band_path) as band_src:
+    with rasterio.open(_resolve_input(sr_band_path)) as band_src:
         band = band_src.read(1).astype(np.float32)
         profile = band_src.profile
 
-    with rasterio.open(qa_pixel_path) as qa_src:
+    with rasterio.open(_resolve_input(qa_pixel_path)) as qa_src:
         qa = qa_src.read(1)
 
     # Cloud mask where all bits 0–4 are zero

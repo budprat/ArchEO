@@ -15,6 +15,19 @@ TEMP_DIR = Path(args.temp_dir)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _resolve_input(p: str) -> str:
+    """Resolve input path: try as-is, then under TEMP_DIR, then just filename."""
+    if Path(p).exists():
+        return p
+    t = TEMP_DIR / p
+    if t.exists():
+        return str(t)
+    t2 = TEMP_DIR / Path(p).name
+    if t2.exists():
+        return str(t2)
+    return p
+
+
 @mcp.tool(description='''
 Compute Precipitable Water Vapor (PWV) image from local MODIS surface reflectance band files
 using the band ratio method.
@@ -89,11 +102,11 @@ def band_ratio(
     import rasterio
     import numpy as np
 
-    with rasterio.open(sur_refl_b02_path) as src02, \
-         rasterio.open(sur_refl_b05_path) as src05, \
-         rasterio.open(sur_refl_b17_path) as src17, \
-         rasterio.open(sur_refl_b18_path) as src18, \
-         rasterio.open(sur_refl_b19_path) as src19:
+    with rasterio.open(_resolve_input(sur_refl_b02_path)) as src02, \
+         rasterio.open(_resolve_input(sur_refl_b05_path)) as src05, \
+         rasterio.open(_resolve_input(sur_refl_b17_path)) as src17, \
+         rasterio.open(_resolve_input(sur_refl_b18_path)) as src18, \
+         rasterio.open(_resolve_input(sur_refl_b19_path)) as src19:
         
         b02 = src02.read(1).astype(np.float32) 
         b05 = src05.read(1).astype(np.float32) 
@@ -187,7 +200,7 @@ def lst_single_channel(
     import numpy as np
 
     def read_band(path):
-        with rasterio.open(path) as src:
+        with rasterio.open(_resolve_input(path)) as src:
             band = src.read(1).astype(np.float32)
             profile = src.profile
             band[band < 0] = np.nan  # Filter invalid values
@@ -276,11 +289,11 @@ def lst_multi_channel(
     import numpy as np
 
     # Read two thermal infrared bands
-    with rasterio.open(band31_path) as src31:
+    with rasterio.open(_resolve_input(band31_path)) as src31:
         band31 = src31.read(1).astype(np.float32)
         profile = src31.profile
 
-    with rasterio.open(band32_path) as src32:
+    with rasterio.open(_resolve_input(band32_path)) as src32:
         band32 = src32.read(1).astype(np.float32)
 
     # Ensure spatial alignment of bands (assumes co-registered input)
@@ -385,20 +398,20 @@ def split_window(
     import numpy as np
 
     # Read inputs
-    with rasterio.open(band31_path) as src31:
+    with rasterio.open(_resolve_input(band31_path)) as src31:
         band31 = src31.read(1).astype(np.float32)
         profile = src31.profile
 
-    with rasterio.open(band32_path) as src32:
+    with rasterio.open(_resolve_input(band32_path)) as src32:
         band32 = src32.read(1).astype(np.float32)
 
-    with rasterio.open(emissivity31_path) as src_e31:
+    with rasterio.open(_resolve_input(emissivity31_path)) as src_e31:
         e31 = src_e31.read(1).astype(np.float32)
         print(f"Emissivity31 Original range: {np.nanmin(e31):.4f} to {np.nanmax(e31):.4f}")
         e31 = e31 * 0.002 + 0.49
         print(f"Emissivity31 Corrected range: {np.nanmin(e31):.4f} to {np.nanmax(e31):.4f}")
 
-    with rasterio.open(emissivity32_path) as src_e32:
+    with rasterio.open(_resolve_input(emissivity32_path)) as src_e32:
         e32 = src_e32.read(1).astype(np.float32)
         print(f"Emissivity32 Original range: {np.nanmin(e32):.4f} to {np.nanmax(e32):.4f}")
         e32 = e32 * 0.002 + 0.49
@@ -510,7 +523,7 @@ def temperature_emissivity_separation(
     wavelength = 10.6    # Representative band central wavelength (μm)
 
     # Step 1: Read representative band
-    with rasterio.open(tir_band_paths[representative_band_index]) as src:
+    with rasterio.open(_resolve_input(tir_band_paths[representative_band_index])) as src:
         rep_band = src.read(1).astype(np.float32)
         profile = src.profile.copy()
         valid_mask = (rep_band > 0) & (rep_band < 1000)
@@ -518,7 +531,7 @@ def temperature_emissivity_separation(
     # Step 2: Read all bands
     bands_data = []
     for path in tir_band_paths:
-        with rasterio.open(path) as src:
+        with rasterio.open(_resolve_input(path)) as src:
             band = src.read(1).astype(np.float32)
             band[~valid_mask] = np.nan
             bands_data.append(band)
@@ -645,25 +658,25 @@ def modis_day_night_lst(
     MAX_TEMP = 325
 
     # Read daytime brightness temperature as reference resolution and mask
-    with rasterio.open(BT_day_path) as src:
+    with rasterio.open(_resolve_input(BT_day_path)) as src:
         BT_day = src.read(1).astype(np.float32)
         BT_day = np.where((BT_day > MAX_TEMP) | (BT_day < MIN_TEMP), np.nan, BT_day)
         ref_profile = src.profile.copy()
 
     # Read nighttime brightness temperature
-    with rasterio.open(BT_night_path) as src:
+    with rasterio.open(_resolve_input(BT_night_path)) as src:
         BT_night_raw = src.read(1).astype(np.float32)
         BT_night_raw = np.where((BT_night_raw > MAX_TEMP) | (BT_night_raw < MIN_TEMP), np.nan, BT_night_raw)
         BT_night = resample_to_reference(BT_night_raw, src.profile, ref_profile)
 
     # Read daytime emissivity
-    with rasterio.open(Emis_day_path) as src:
+    with rasterio.open(_resolve_input(Emis_day_path)) as src:
         Emis_day_raw = src.read(1).astype(np.float32)
         Emis_day_raw = (Emis_day_raw * 0.002) + 0.49
         Emis_day = resample_to_reference(Emis_day_raw, src.profile, ref_profile)
 
     # Read nighttime emissivity
-    with rasterio.open(Emis_night_path) as src:
+    with rasterio.open(_resolve_input(Emis_night_path)) as src:
         Emis_night_raw = src.read(1).astype(np.float32)
         Emis_night_raw = (Emis_night_raw * 0.002) + 0.49
         Emis_night = resample_to_reference(Emis_night_raw, src.profile, ref_profile)
@@ -754,7 +767,7 @@ def ttm_lst(
     bands_data = []
     profile = None
     for path in tir_band_paths:
-        with rasterio.open(path) as src:
+        with rasterio.open(_resolve_input(path)) as src:
             band = src.read(1).astype(np.float32)
             bands_data.append(band)
             if profile is None:
@@ -871,9 +884,9 @@ def calculate_mean_lst_by_ndvi(
 
     for red_path, nir_path, lst_path in zip(red_paths, nir_paths, lst_paths):
         try:
-            with rasterio.open(red_path) as red_src, \
-                 rasterio.open(nir_path) as nir_src, \
-                 rasterio.open(lst_path) as lst_src:
+            with rasterio.open(_resolve_input(red_path)) as red_src, \
+                 rasterio.open(_resolve_input(nir_path)) as nir_src, \
+                 rasterio.open(_resolve_input(lst_path)) as lst_src:
 
                 red = red_src.read(1).astype('float32')
                 nir = nir_src.read(1).astype('float32')
@@ -936,9 +949,9 @@ def calculate_max_lst_by_ndvi(red_path, nir_path, lst_path, ndvi_threshold, mode
     import rasterio
     import numpy as np
 
-    with rasterio.open(red_path) as red_src, \
-         rasterio.open(nir_path) as nir_src, \
-         rasterio.open(lst_path) as lst_src:
+    with rasterio.open(_resolve_input(red_path)) as red_src, \
+         rasterio.open(_resolve_input(nir_path)) as nir_src, \
+         rasterio.open(_resolve_input(lst_path)) as lst_src:
 
         red = red_src.read(1).astype('float32')
         nir = nir_src.read(1).astype('float32')
@@ -1052,7 +1065,7 @@ def ATI(
                       width=ref_profile['width'],
                       height=ref_profile['height'],
                       resampleAlg=gdal.GRA_Bilinear)
-            dataset = gdal.Open(temp_dst)
+            dataset = gdal.Open(_resolve_input(temp_dst))
             resampled_data = dataset.GetRasterBand(1).ReadAsArray()
             dataset = None
             return resampled_data
@@ -1063,13 +1076,13 @@ def ATI(
                 os.remove(temp_dst)
 
     # Read raster data
-    with rasterio.open(day_temp_path) as src_day:
+    with rasterio.open(_resolve_input(day_temp_path)) as src_day:
         BT_day = src_day.read(1).astype(np.float32)
         day_profile = src_day.profile
-    with rasterio.open(night_temp_path) as src_night:
+    with rasterio.open(_resolve_input(night_temp_path)) as src_night:
         BT_night = src_night.read(1).astype(np.float32)
         night_profile = src_night.profile
-    with rasterio.open(albedo_path) as src_alb:
+    with rasterio.open(_resolve_input(albedo_path)) as src_alb:
         albedo = src_alb.read(1).astype(np.float32)
         albedo_profile = src_alb.profile
 
@@ -1149,7 +1162,7 @@ def dual_polarization_differential(
         return 10 ** (db / 10)
 
     # Read polarization band data
-    with rasterio.open(pol1_path) as src1, rasterio.open(pol2_path) as src2:
+    with rasterio.open(_resolve_input(pol1_path)) as src1, rasterio.open(_resolve_input(pol2_path)) as src2:
         band1 = src1.read(1).astype(np.float32)
         band2 = src2.read(1).astype(np.float32)
         profile = src1.profile
@@ -1262,7 +1275,7 @@ def dual_frequency_diff(
     beta_val = beta if beta is not None else param_models[parameter_upper]["beta"]
 
     # Read input bands
-    with rasterio.open(band1_path) as src1, rasterio.open(band2_path) as src2:
+    with rasterio.open(_resolve_input(band1_path)) as src1, rasterio.open(_resolve_input(band2_path)) as src2:
         band1 = src1.read(1).astype(np.float32)
         band2 = src2.read(1).astype(np.float32)
         profile = src1.profile
@@ -1371,7 +1384,7 @@ def multi_freq_bt(
     profile = None
     mask = None
     for path in bt_paths:
-        with rasterio.open(path) as src:
+        with rasterio.open(_resolve_input(path)) as src:
             band = src.read(1).astype(np.float32)
             # Create mask for valid pixels excluding nodata
             if src.nodata is not None:
@@ -1479,7 +1492,7 @@ def chang_single_param_inversion(
 
     # Read bands and build combined valid data mask
     for path in bt_paths:
-        with rasterio.open(path) as src:
+        with rasterio.open(_resolve_input(path)) as src:
             band = src.read(1).astype(np.float32)
             nodata = src.nodata
             valid_mask = band != nodata if nodata is not None else np.ones_like(band, dtype=bool)
@@ -1777,7 +1790,7 @@ def calculate_water_turbidity_ntu(
     import numpy as np
 
     # Open the Red band raster file
-    with rasterio.open(input_red_path) as red_src:
+    with rasterio.open(_resolve_input(input_red_path)) as red_src:
         red_band = red_src.read(1)  # Read the first band (assuming single-band rasters)
         red_profile = red_src.profile  # Get the metadata profile
 
