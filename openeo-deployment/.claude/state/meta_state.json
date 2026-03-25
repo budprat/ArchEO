@@ -1,0 +1,13 @@
+{
+  "reasoning_state": "confident",
+  "cognitive_load": "medium",
+  "confidence_level": 0.7,
+  "uncertainty_areas": [],
+  "current_strategy": "debug_systematic",
+  "strategy_effectiveness": 0.5,
+  "consecutive_failures": 0,
+  "last_success_tool": null,
+  "session_start": "2026-03-25T11:36:29.320715",
+  "last_updated": "2026-03-25T11:36:29.323873",
+  "pre_action_confidence": 0.7
+}

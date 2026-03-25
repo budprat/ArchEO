@@ -1,0 +1,25 @@
+{
+  "name": "canopy_height_default",
+  "task": "canopy_height",
+  "version": "1.0.0",
+  "description": "Canopy height estimation from RGB satellite imagery using regression CNN",
+  "input_bands": ["red", "green", "blue"],
+  "input_size": 256,
+  "output_type": "regression",
+  "output_range": [0, 50],
+  "output_unit": "meters",
+  "architecture": "resnet34_regressor",
+  "framework": "onnx",
+  "model_file": "model.onnx",
+  "preprocessing": {
+    "normalize": true,
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225]
+  },
+  "training": {
+    "dataset": "GEDI-derived",
+    "samples": 50000,
+    "epochs": 75
+  },
+  "notes": "Estimates tree canopy height in meters from RGB imagery. Place model.onnx for real inference."
+}

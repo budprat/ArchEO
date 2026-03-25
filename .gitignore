@@ -63,3 +63,6 @@ frontend/.next/
 frontend/out/
 .superpowers/
 !frontend/lib/
+openeo-deployment/data/openeo_ai.db
+openeo-deployment/venv/
+openeo-deployment/logs/

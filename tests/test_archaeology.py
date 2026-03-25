@@ -1142,6 +1142,63 @@ class TestIronOxideIndex:
         )
         assert Path(result["image_path"]).exists()
 
+    def test_rgb_with_default_bands_auto_remaps(self, rgb_tif):
+        """IOI with defaults (red=4, blue=2) should auto-remap for RGB (3-band) images."""
+        # This used to crash: GetRasterBand(4) returns None on 3-band image
+        result = arch.iron_oxide_index(rgb_tif, "ioi/rgb_defaults.tif")
+        assert isinstance(result, dict)
+        assert Path(result["image_path"]).exists()
+        assert result["min"] >= -1.01
+        assert result["max"] <= 1.01
+
+    def test_multiband_band_out_of_range_gives_clear_error(self, rgb_tif):
+        """Requesting band 8 on a 3-band image should raise RuntimeError, not AttributeError.
+        Note: iron_oxide_index auto-remaps for RGB, so we force both bands out of range."""
+        with pytest.raises(RuntimeError, match=r"Band 8.*only has 3"):
+            # Force blue_band=8 too, so auto-remap can't save it (red remaps to 1, blue to 3)
+            # Use safe_read_band directly to test the guard
+            from osgeo import gdal
+            from agent.tools.utils import safe_read_band
+            ds = gdal.Open(rgb_tif)
+            safe_read_band(ds, 8, "nir")
+            ds = None
+
+
+class TestMultiBandToolsBandValidation:
+    """Verify multi-band tools fail gracefully on RGB images."""
+
+    @pytest.fixture(scope="class")
+    def rgb_tif(self, tmp_dir):
+        data = _synthetic_multiband((32, 32), n_bands=3)
+        path = tmp_dir / "validation_rgb.tif"
+        _write_multiband_geotiff(data, str(path))
+        return str(path)
+
+    def test_bare_soil_index_rejects_rgb(self, rgb_tif):
+        with pytest.raises(RuntimeError, match=r"has 3 band"):
+            arch.bare_soil_index(rgb_tif, "bsi/fail.tif")
+
+    def test_moisture_index_rejects_rgb(self, rgb_tif):
+        with pytest.raises(RuntimeError, match=r"has 3 band"):
+            arch.moisture_index(rgb_tif, "ndmi/fail.tif")
+
+    def test_clay_mineral_index_rejects_rgb(self, rgb_tif):
+        with pytest.raises(RuntimeError, match=r"has 3 band"):
+            arch.clay_mineral_index(rgb_tif, "cmi/fail.tif")
+
+    def test_savi_rejects_rgb_with_default_bands(self, rgb_tif):
+        with pytest.raises(RuntimeError, match=r"has 3 band"):
+            arch.soil_adjusted_vegetation_index(rgb_tif, "savi/fail.tif")
+
+    def test_band_ratio_rejects_out_of_range(self, rgb_tif):
+        with pytest.raises(RuntimeError, match=r"has 3 band"):
+            arch.band_ratio_calculator(rgb_tif, 8, 4, "ratio/fail.tif")
+
+    def test_error_message_suggests_rgb_tools(self, rgb_tif):
+        """Error message should suggest RGB-compatible tools."""
+        with pytest.raises(RuntimeError, match=r"iron_oxide_index.*brightness_index"):
+            arch.bare_soil_index(rgb_tif, "bsi/suggest.tif")
+
 
 # ---------------------------------------------------------------------------
 # Test: clay_mineral_index

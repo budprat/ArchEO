@@ -2,7 +2,7 @@ import argparse
 
 from pathlib import Path
 from fastmcp import FastMCP
-from utils import read_image, read_image_uint8
+from utils import read_image, read_image_uint8, safe_read_band, validate_band_count
 
 
 mcp = FastMCP()
@@ -15,7 +15,10 @@ TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _resolve_input(image_path: str) -> str:
-    """Resolve input path — try as-is first, then under TEMP_DIR."""
+    """Resolve input path — try as-is first, then under TEMP_DIR.
+
+    Raises RuntimeError with actionable message if file not found anywhere.
+    """
     from pathlib import Path as _P
     p = _P(image_path)
     if p.exists():
@@ -32,8 +35,20 @@ def _resolve_input(image_path: str) -> str:
     for match in TEMP_DIR.rglob(p.name):
         if match.is_file():
             return str(match)
-    # Return original — let the tool raise its own error
-    return image_path
+    # File not found — give actionable error instead of letting downstream tool crash
+    # List available files in the same directory to help the agent recover
+    search_dir = TEMP_DIR / p.parent if p.parent != _P(".") else TEMP_DIR
+    available = []
+    if search_dir.exists():
+        available = sorted(f.name for f in search_dir.iterdir() if f.is_file() and f.suffix in ('.tif', '.tiff', '.png', '.jpg', '.jpeg'))
+    avail_str = ", ".join(available[:15]) if available else "none"
+    raise RuntimeError(
+        f"File not found: '{image_path}'. "
+        f"Searched: as-is, under TEMP_DIR ({TEMP_DIR}), and recursive. "
+        f"This usually means a previous tool in the chain did not run or used a different output_path. "
+        f"Available files in '{search_dir.name}/': [{avail_str}]. "
+        f"Please check that the upstream tool was called first and use its exact output path."
+    )
 
 
 def _to_grayscale(img):
@@ -1059,8 +1074,13 @@ def band_ratio_calculator(
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
-    arr_a = ds.GetRasterBand(band_a).ReadAsArray().astype(np.float64)
-    arr_b = ds.GetRasterBand(band_b).ReadAsArray().astype(np.float64)
+    err = validate_band_count(ds, {"band_a": band_a, "band_b": band_b}, "band_ratio_calculator")
+    if err:
+        ds = None
+        raise RuntimeError(err)
+
+    arr_a = safe_read_band(ds, band_a, "band_a").astype(np.float64)
+    arr_b = safe_read_band(ds, band_b, "band_b").astype(np.float64)
     geo = ds.GetGeoTransform()
     proj = ds.GetProjection()
     ds = None
@@ -1822,13 +1842,18 @@ def bare_soil_index(
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
+    err = validate_band_count(ds, {"red": red_band, "blue": blue_band, "nir": nir_band, "swir1": swir1_band}, "bare_soil_index")
+    if err:
+        ds = None
+        raise RuntimeError(err)
+
     geo = ds.GetGeoTransform()
     proj = ds.GetProjection()
 
-    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
-    blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
-    nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
-    swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
+    red = safe_read_band(ds, red_band, "red").astype(np.float64)
+    blue = safe_read_band(ds, blue_band, "blue").astype(np.float64)
+    nir = safe_read_band(ds, nir_band, "nir").astype(np.float64)
+    swir1 = safe_read_band(ds, swir1_band, "swir1").astype(np.float64)
     ds = None
 
     numerator = (swir1 + red) - (nir + blue)
@@ -1917,11 +1942,16 @@ def soil_adjusted_vegetation_index(
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
+    err = validate_band_count(ds, {"nir": nir_band, "red": red_band}, "soil_adjusted_vegetation_index")
+    if err:
+        ds = None
+        raise RuntimeError(err)
+
     geo = ds.GetGeoTransform()
     proj = ds.GetProjection()
 
-    nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
-    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
+    nir = safe_read_band(ds, nir_band, "nir").astype(np.float64)
+    red = safe_read_band(ds, red_band, "red").astype(np.float64)
     ds = None
 
     savi = ((nir - red) / (nir + red + L + 1e-10)) * (1.0 + L)
@@ -2001,11 +2031,16 @@ def moisture_index(
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
+    err = validate_band_count(ds, {"nir": nir_band, "swir1": swir1_band}, "moisture_index")
+    if err:
+        ds = None
+        raise RuntimeError(err)
+
     geo = ds.GetGeoTransform()
     proj = ds.GetProjection()
 
-    nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
-    swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
+    nir = safe_read_band(ds, nir_band, "nir").astype(np.float64)
+    swir1 = safe_read_band(ds, swir1_band, "swir1").astype(np.float64)
     ds = None
 
     ndmi = ((nir - swir1) / (nir + swir1 + 1e-10)).astype(np.float32)
@@ -2090,11 +2125,18 @@ def iron_oxide_index(
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
+    n_bands = ds.RasterCount
     geo = ds.GetGeoTransform()
     proj = ds.GetProjection()
 
-    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
-    blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
+    # Auto-remap for RGB images (3 bands): Red=1, Blue=3
+    if n_bands <= 4 and red_band > n_bands:
+        red_band = 1   # R channel in RGB
+    if n_bands <= 4 and blue_band > n_bands:
+        blue_band = min(3, n_bands)  # B channel in RGB
+
+    red = safe_read_band(ds, red_band, "red").astype(np.float64)
+    blue = safe_read_band(ds, blue_band, "blue").astype(np.float64)
     ds = None
 
     ioi = ((red - blue) / (red + blue + 1e-10)).astype(np.float32)
@@ -2176,11 +2218,16 @@ def clay_mineral_index(
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
+    err = validate_band_count(ds, {"swir1": swir1_band, "swir2": swir2_band}, "clay_mineral_index")
+    if err:
+        ds = None
+        raise RuntimeError(err)
+
     geo = ds.GetGeoTransform()
     proj = ds.GetProjection()
 
-    swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
-    swir2 = ds.GetRasterBand(swir2_band).ReadAsArray().astype(np.float64)
+    swir1 = safe_read_band(ds, swir1_band, "swir1").astype(np.float64)
+    swir2 = safe_read_band(ds, swir2_band, "swir2").astype(np.float64)
     ds = None
 
     cmi = ((swir1 - swir2) / (swir1 + swir2 + 1e-10)).astype(np.float32)
@@ -2358,12 +2405,17 @@ def redness_index(
     if ds is None:
         raise RuntimeError(f"Failed to open image: {image_path}")
 
+    err = validate_band_count(ds, {"red": red_band, "green": green_band, "blue": blue_band}, "redness_index")
+    if err:
+        ds = None
+        raise RuntimeError(err)
+
     geo = ds.GetGeoTransform()
     proj = ds.GetProjection()
 
-    red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
-    green = ds.GetRasterBand(green_band).ReadAsArray().astype(np.float64)
-    blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
+    red = safe_read_band(ds, red_band, "red").astype(np.float64)
+    green = safe_read_band(ds, green_band, "green").astype(np.float64)
+    blue = safe_read_band(ds, blue_band, "blue").astype(np.float64)
     ds = None
 
     ri = (red ** 2 / (blue * green ** 3 + 1e-10)).astype(np.float32)
@@ -2489,10 +2541,10 @@ def archaeological_composite_index(
 
     if has_swir:
         # Full formula with SWIR bands
-        red = ds.GetRasterBand(red_band).ReadAsArray().astype(np.float64)
-        blue = ds.GetRasterBand(blue_band).ReadAsArray().astype(np.float64)
-        nir = ds.GetRasterBand(nir_band).ReadAsArray().astype(np.float64)
-        swir1 = ds.GetRasterBand(swir1_band).ReadAsArray().astype(np.float64)
+        red = safe_read_band(ds, red_band, "red").astype(np.float64)
+        blue = safe_read_band(ds, blue_band, "blue").astype(np.float64)
+        nir = safe_read_band(ds, nir_band, "nir").astype(np.float64)
+        swir1 = safe_read_band(ds, swir1_band, "swir1").astype(np.float64)
         ds = None
 
         # BSI = ((SWIR1 + Red) - (NIR + Blue)) / ((SWIR1 + Red) + (NIR + Blue))

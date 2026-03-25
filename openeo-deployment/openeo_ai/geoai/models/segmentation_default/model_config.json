@@ -1,0 +1,30 @@
+{
+  "name": "segmentation_default",
+  "task": "segmentation",
+  "version": "1.0.0",
+  "description": "Default semantic segmentation model for land cover classification using U-Net architecture",
+  "input_bands": ["red", "green", "blue", "nir"],
+  "input_size": 256,
+  "output_classes": [
+    "background",
+    "water",
+    "vegetation",
+    "urban",
+    "agriculture",
+    "bare_soil"
+  ],
+  "architecture": "unet",
+  "framework": "onnx",
+  "model_file": "model.onnx",
+  "preprocessing": {
+    "normalize": true,
+    "mean": [0.485, 0.456, 0.406, 0.5],
+    "std": [0.229, 0.224, 0.225, 0.25]
+  },
+  "training": {
+    "dataset": "EuroSAT-like",
+    "samples": 10000,
+    "epochs": 50
+  },
+  "notes": "Place model.onnx in this directory to enable real inference. Without model file, stub predictions will be used."
+}
