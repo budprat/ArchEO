@@ -103,13 +103,18 @@ export default function Home() {
                   <ImageViewer src={activeImageSrc} alt={uploadedFile.name} />
                 </div>
               )}
+              {/* FileMetadata removed — cluttered UI */}
+            </>
+          )}
+          {/* Layer toggle pinned at bottom */}
+          {uploadedFile && resultImages.length > 0 && (
+            <div className="border-t pt-2 mt-auto">
               <ImageLayerToggle
                 activeLayer={activeImageLayer}
                 resultImages={resultImages}
                 onLayerChange={setActiveLayer}
               />
-              <FileMetadata file={uploadedFile} />
-            </>
+            </div>
           )}
         </div>
       </div>

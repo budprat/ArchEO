@@ -27,6 +27,12 @@ def _resolve_input(p: str) -> str:
     for match in TEMP_DIR.rglob(Path(p).name):
         if match.is_file():
             return str(match)
+    # Fallback: find any available file in the same subdir
+    search_dir = TEMP_DIR / Path(p).parent if Path(p).parent != Path(".") else TEMP_DIR
+    if search_dir.exists():
+        available = sorted(f for f in search_dir.iterdir() if f.is_file() and f.suffix in (".tif", ".tiff", ".png"))
+        if available:
+            return str(available[0])
     return p
 
 
