@@ -18,6 +18,8 @@ export default function Home() {
   // Load API key from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem(API_KEY_STORAGE_KEY);
+    // Hydrate after mount. Reading localStorage during render mismatches SSR.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (stored) setApiKey(stored);
   }, []);
 
