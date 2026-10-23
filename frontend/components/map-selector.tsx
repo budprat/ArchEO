@@ -31,7 +31,11 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
   const [mounted, setMounted] = useState(false);
   const [mapKey, setMapKey] = useState(0);
   const [lat, setLat] = useState(-10.8933);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    // Client-only gate so the OSM iframe is not rendered during SSR.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+  }, []);
   const [lon, setLon] = useState(-77.5203);
   const [status, setStatus] = useState<
     "idle" | "downloading" | "processing" | "done" | "error"
@@ -41,6 +45,7 @@ export function MapSelector({ onDownloadComplete }: MapSelectorProps) {
   const handlePreset = (preset: (typeof PRESETS)[0]) => {
     setLat(preset.lat);
     setLon(preset.lon);
+    // eslint-disable-next-line react-hooks/purity -- click handler remounts the iframe
     setMapKey(Date.now());
   };
 

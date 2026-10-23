@@ -6,9 +6,9 @@ conda install gdal=3.4.1 -c conda-forge
 python-dotenv>=1.1.0
 
 # LangChain and MCP
-fastmcp==2.11.3
-langchain==0.3.27
-langchain-core==0.3.75
+fastmcp==3.2.0
+langchain==0.3.30
+langchain-core==0.3.85
 langchain-mcp-adapters==0.1.9
 langchain-openai==0.3.32
 langchain-text-splitters==0.3.10
@@ -17,7 +17,7 @@ langgraph-checkpoint==2.1.1
 langgraph-prebuilt==0.6.4
 langgraph-sdk==0.2.4
 langsmith==0.4.21
-mcp==1.12.4
+mcp==1.30.0
 
 # Scientific computing
 numpy==1.24.4
@@ -36,7 +36,7 @@ ruptures
 matplotlib==3.10.5
 
 # Image processing
-pillow==11.3.0
+pillow==13.0.0
 imageio==2.37.0
 
 # API and HTTP
